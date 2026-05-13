@@ -1,4 +1,4 @@
-name = "jira-worker-analytics"
+name = "jira-tracker"
 main = "src/index.ts"
 compatibility_date = "2026-05-12"
 
