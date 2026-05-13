@@ -1,0 +1,18 @@
+{
+  "name": "jira-worker-analytics",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "hono": "^4.6.5"
+  },
+  "devDependencies": {
+    "wrangler": "^4.50.0",
+    "@cloudflare/workers-types": "^4.20260501.0",
+    "typescript": "^5.8.3"
+  }
+}

@@ -1,0 +1,8 @@
+name = "jira-worker-analytics"
+main = "src/index.ts"
+compatibility_date = "2026-05-12"
+
+[vars]
+# Add secrets:
+# wrangler secret put JIRA_EMAIL
+# wrangler secret put JIRA_API_TOKEN
