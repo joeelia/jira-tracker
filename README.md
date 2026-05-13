@@ -17,7 +17,7 @@ Features:
 ## Setup
 
 Install:
-npm install
+pnpm install
 
 Add secrets:
 wrangler secret put JIRA_EMAIL
