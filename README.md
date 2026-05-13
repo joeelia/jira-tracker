@@ -24,10 +24,10 @@ wrangler secret put JIRA_EMAIL
 wrangler secret put JIRA_API_TOKEN
 
 Run locally:
-npm run dev
+pnpm run dev
 
 Deploy:
-npm run deploy
+pnpm run deploy
 
 ## Endpoints
 
