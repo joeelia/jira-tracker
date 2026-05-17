@@ -190,12 +190,52 @@ app.get('/', (c) => {
 
     .engineer-input-wrapper {
       display: flex;
+      align-items: center;
       gap: 0.5rem;
       margin-bottom: 0.5rem;
     }
 
-    .engineer-input-wrapper input {
-      flex: 1;
+    .email-input-wrapper {
+      position: relative;
+    }
+
+    .email-dropdown {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      background: white;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      max-height: 200px;
+      overflow-y: auto;
+      z-index: 1000;
+      margin-top: 4px;
+    }
+
+    .email-dropdown-item {
+      padding: 0.5rem 0.75rem;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .email-dropdown-item:hover {
+      background: #f7fafc;
+    }
+
+    .email-dropdown-item .delete-email {
+      color: #e53e3e;
+      font-size: 0.875rem;
+      padding: 0.25rem 0.5rem;
+      cursor: pointer;
+    }
+
+    .email-dropdown-item .delete-email:hover {
+      background: #fed7d7;
+      border-radius: 4px;
     }
 
     .delete-engineer-btn {
@@ -237,6 +277,119 @@ app.get('/', (c) => {
 
     .comparison-table th:hover .header-tooltip {
       opacity: 1;
+    }
+
+    .zero-metrics-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 2000;
+    }
+
+    .zero-metrics-modal .modal-content {
+      background: white;
+      padding: 1.5rem;
+      border-radius: 12px;
+      max-width: 400px;
+      position: relative;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+    }
+
+    .zero-metrics-modal .modal-close {
+      position: absolute;
+      top: 0.75rem;
+      right: 0.75rem;
+      background: none;
+      border: none;
+      font-size: 1.5rem;
+      cursor: pointer;
+      color: #718096;
+      line-height: 1;
+      padding: 0;
+      width: 1.5rem;
+      height: 1.5rem;
+    }
+
+    .zero-metrics-modal .modal-close:hover {
+      color: #2d3748;
+    }
+
+    .zero-metrics-modal p {
+      margin: 0.75rem 0;
+      color: #2d3748;
+      line-height: 1.5;
+    }
+
+    .zero-metrics-modal .modal-hint {
+      font-size: 0.875rem;
+      color: #718096;
+    }
+
+    .zero-metrics-modal .modal-hint strong {
+      color: #4299e1;
+    }
+
+    .zero-metrics-modal .modal-arrow {
+      position: absolute;
+      top: -10px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 0;
+      height: 0;
+      border-left: 10px solid transparent;
+      border-right: 10px solid transparent;
+      border-bottom: 10px solid white;
+    }
+
+    .zero-metrics-modal .modal-content {
+      position: fixed;
+    }
+
+    .onboarding-arrow {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.3);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 1500;
+    }
+
+    .onboarding-arrow .arrow-content {
+      background: white;
+      padding: 1rem 1.5rem;
+      border-radius: 12px;
+      max-width: 350px;
+      position: relative;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+    }
+
+    .onboarding-arrow .arrow-content p {
+      margin: 0;
+      color: #2d3748;
+      line-height: 1.5;
+      font-size: 0.875rem;
+    }
+
+    .onboarding-arrow .arrow-pointer {
+      position: absolute;
+      bottom: -10px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 0;
+      height: 0;
+      border-left: 10px solid transparent;
+      border-right: 10px solid transparent;
+      border-top: 10px solid white;
     }
 
     .pill-filter {
@@ -649,14 +802,19 @@ app.get('/', (c) => {
       </div>
       <form class="search-form" id="searchForm">
         <div id="singleEngineerForm">
-          <input 
-            type="email" 
-            id="emailInput" 
-            name="email"
-            autocomplete="off"
-            placeholder="Enter user email (e.g., user@example.com)" 
-            required
-          >
+          <div class="form-group">
+            <label for="emailInput">Email</label>
+            <div class="email-input-wrapper">
+              <input 
+                type="email" 
+                id="emailInput" 
+                placeholder="engineer@example.com" 
+                required 
+                autocomplete="off"
+              >
+              <div class="email-dropdown" id="emailDropdown" style="display: none;"></div>
+            </div>
+          </div>
         </div>
         <div id="compareEngineerForm" style="display: none;">
           <div id="engineerInputs">
@@ -664,7 +822,6 @@ app.get('/', (c) => {
               <input 
                 type="email" 
                 class="engineer-email"
-                name="engineer-email-1"
                 autocomplete="off"
                 placeholder="Engineer 1 email" 
               >
@@ -673,7 +830,6 @@ app.get('/', (c) => {
               <input 
                 type="email" 
                 class="engineer-email"
-                name="engineer-email-2"
                 autocomplete="off"
                 placeholder="Engineer 2 email" 
               >
@@ -776,12 +932,28 @@ app.get('/', (c) => {
     </div>
 
     <div class="empty-state" id="emptyState">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="11" cy="11" r="8"></circle>
-        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-      </svg>
-      <p>Enter an email address to search for a user</p>
-    </div>
+        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <p>Search for an engineer to see their metrics</p>
+      </div>
+
+      <div class="zero-metrics-modal" id="zeroMetricsModal" style="display: none;">
+        <div class="modal-content">
+          <button class="modal-close" id="modalClose">&times;</button>
+          <p>This person does not submit worklogs, maybe they only create tickets?</p>
+          <p class="modal-hint">Click <strong>"All"</strong> filter to see all tickets where they were assigned.</p>
+          <div class="modal-arrow"></div>
+        </div>
+      </div>
+
+      <div class="onboarding-arrow" id="onboardingArrow" style="display: none;">
+        <div class="arrow-content">
+          <p>Use filters to switch between All tickets and Work Log tickets</p>
+          <div class="arrow-pointer"></div>
+        </div>
+      </div>
   </div>
 
   <script>
@@ -902,6 +1074,93 @@ app.get('/', (c) => {
     let allTicketsData = [];
     let engineerCount = 2;
 
+    // Wire up modal close button
+    document.getElementById('modalClose')?.addEventListener('click', () => {
+      document.getElementById('zeroMetricsModal').style.display = 'none';
+    });
+
+    // Email dropdown functionality
+    const emailDropdown = document.getElementById('emailDropdown');
+
+    function getSavedEmails() {
+      const saved = localStorage.getItem('savedEmails');
+      return saved ? JSON.parse(saved) : [];
+    }
+
+    function saveEmail(email) {
+      if (!email) return;
+      const emails = getSavedEmails();
+      if (!emails.includes(email)) {
+        emails.push(email);
+        localStorage.setItem('savedEmails', JSON.stringify(emails));
+      }
+    }
+
+    function deleteEmail(email) {
+      const emails = getSavedEmails();
+      const filtered = emails.filter(e => e !== email);
+      localStorage.setItem('savedEmails', JSON.stringify(filtered));
+    }
+
+    function showEmailDropdown(input, dropdown) {
+      const emails = getSavedEmails();
+      if (emails.length === 0) {
+        dropdown.style.display = 'none';
+        return;
+      }
+
+      dropdown.innerHTML = emails.map(email => 
+        '<div class="email-dropdown-item"><span>' + email + '</span><span class="delete-email" data-email="' + email + '">×</span></div>'
+      ).join('');
+
+      dropdown.style.display = 'block';
+
+      // Add click handlers for dropdown items
+      dropdown.querySelectorAll('.email-dropdown-item').forEach(item => {
+        item.addEventListener('click', (e) => {
+          if (e.target.classList.contains('delete-email')) {
+            e.stopPropagation();
+            const emailToDelete = e.target.dataset.email;
+            deleteEmail(emailToDelete);
+            showEmailDropdown(input, dropdown);
+          } else {
+            input.value = item.querySelector('span').textContent;
+            dropdown.style.display = 'none';
+          }
+        });
+      });
+    }
+
+    emailInput.addEventListener('focus', () => showEmailDropdown(emailInput, emailDropdown));
+    emailInput.addEventListener('input', () => {
+      const value = emailInput.value.toLowerCase();
+      const emails = getSavedEmails().filter(e => e.toLowerCase().includes(value));
+      if (emails.length === 0) {
+        emailDropdown.style.display = 'none';
+        return;
+      }
+
+      emailDropdown.innerHTML = emails.map(email => 
+        '<div class="email-dropdown-item"><span>' + email + '</span><span class="delete-email" data-email="' + email + '">×</span></div>'
+      ).join('');
+
+      emailDropdown.style.display = 'block';
+
+      emailDropdown.querySelectorAll('.email-dropdown-item').forEach(item => {
+        item.addEventListener('click', (e) => {
+          if (e.target.classList.contains('delete-email')) {
+            e.stopPropagation();
+            const emailToDelete = e.target.dataset.email;
+            deleteEmail(emailToDelete);
+            showEmailDropdown(emailInput, emailDropdown);
+          } else {
+            emailInput.value = item.querySelector('span').textContent;
+            emailDropdown.style.display = 'none';
+          }
+        });
+      });
+    });
+
     // Mode toggle
     singleModeBtn.addEventListener('click', () => {
       isCompareMode = false;
@@ -970,6 +1229,50 @@ app.get('/', (c) => {
       updateMetricsForFilter();
     }
 
+    function showOnboardingArrow() {
+      const arrow = document.getElementById('onboardingArrow');
+      const pillFilter = document.getElementById('pillFilter');
+      if (!arrow || !pillFilter) return;
+
+      // Position arrow above the pill filter
+      const filterRect = pillFilter.getBoundingClientRect();
+      const arrowContent = arrow.querySelector('.arrow-content');
+      if (arrowContent) {
+        const arrowWidth = 350;
+        const arrowLeft = Math.max(10, filterRect.left + (filterRect.width / 2) - (arrowWidth / 2));
+        arrowContent.style.position = 'fixed';
+        arrowContent.style.top = (filterRect.top - 70) + 'px';
+        arrowContent.style.left = arrowLeft + 'px';
+      }
+
+      arrow.style.display = 'flex';
+
+      // Auto-hide after 5 seconds
+      setTimeout(() => {
+        arrow.style.display = 'none';
+      }, 5000);
+    }
+
+    function showZeroMetricsModal() {
+      const modal = document.getElementById('zeroMetricsModal');
+      const pillFilter = document.getElementById('pillFilter');
+      if (!modal || !pillFilter) return;
+
+      // Position modal above the pill filter
+      const filterRect = pillFilter.getBoundingClientRect();
+      const modalContent = modal.querySelector('.modal-content');
+      if (modalContent) {
+        const modalWidth = 400;
+        const modalLeft = Math.max(10, filterRect.left + (filterRect.width / 2) - (modalWidth / 2));
+        modalContent.style.position = 'fixed';
+        modalContent.style.top = (filterRect.bottom + 15) + 'px';
+        modalContent.style.left = modalLeft + 'px';
+        modalContent.style.transform = 'none';
+      }
+
+      modal.style.display = 'flex';
+    }
+
     function updateMetricsForFilter() {
       if (!window._singleMetricsData) return;
       const d = window._singleMetricsData;
@@ -999,33 +1302,17 @@ app.get('/', (c) => {
       engineerCount++;
       const wrapper = document.createElement('div');
       wrapper.className = 'engineer-input-wrapper';
-      
-      const input = document.createElement('input');
-      input.type = 'email';
-      input.className = 'engineer-email';
-      input.name = 'engineer-email-' + engineerCount;
-      input.autocomplete = 'off';
-      input.placeholder = 'Engineer ' + engineerCount + ' email';
-      if (isCompareMode) {
-        input.required = true;
-      }
-      
-      const deleteBtn = document.createElement('button');
-      deleteBtn.type = 'button';
-      deleteBtn.className = 'delete-engineer-btn';
-      deleteBtn.textContent = '×';
-      deleteBtn.addEventListener('click', () => {
-        const wrappers = document.querySelectorAll('.engineer-input-wrapper');
-        if (wrappers.length > 2) {
-          wrapper.remove();
-        } else {
-          alert('At least 2 engineers are required for comparison');
-        }
-      });
-      
-      wrapper.appendChild(input);
-      wrapper.appendChild(deleteBtn);
+      wrapper.innerHTML = '<input type="email" class="engineer-email" autocomplete="off" placeholder="Engineer ' + engineerCount + ' email"><button type="button" class="delete-engineer-btn">×</button>';
       engineerInputs.appendChild(wrapper);
+
+      // Wire up delete button
+      wrapper.querySelector('.delete-engineer-btn').addEventListener('click', () => {
+        if (document.querySelectorAll('.engineer-email').length <= 2) {
+          alert('You must have at least 2 engineers to compare');
+          return;
+        }
+        wrapper.remove();
+      });
     });
 
     // Add delete buttons to initial engineer inputs
@@ -1128,6 +1415,9 @@ app.get('/', (c) => {
             urlParams += '&customStart=' + customStart + '&customEnd=' + customEnd;
           }
           window.history.pushState({}, '', urlParams);
+
+          // Save emails to local storage
+          emails.forEach(saveEmail);
         } else {
           const email = emailInput.value.trim();
           if (!email) return;
@@ -1167,11 +1457,27 @@ app.get('/', (c) => {
           // Store all tickets data for client-side filtering
           allTicketsData = data.tickets || [];
 
+          // Check if all metrics are zero (no worklogs)
+          const noWorklogs = data.totalHours === 0 && data.totalTickets > 0;
+          if (noWorklogs) {
+            // Has tickets but no worklogs - show modal
+            showZeroMetricsModal();
+          }
+
           // Display filtered tickets based on current filter
           filterAndDisplayTickets();
 
           emptyState.classList.remove('show');
           results.classList.add('show');
+
+          // Save email to local storage
+          saveEmail(email);
+
+          // Show onboarding arrow on first search
+          if (!localStorage.getItem('onboardingShown')) {
+            showOnboardingArrow();
+            localStorage.setItem('onboardingShown', 'true');
+          }
           
           // Update URL with search parameters (no encoding)
           let urlParams = '?search=single&email=' + email;
