@@ -252,12 +252,12 @@ app.get('/', (c) => {
       background: #dc2626;
     }
 
-    .comparison-table th {
+    .comparison-table th, .tickets-table th {
       position: relative;
       cursor: help;
     }
 
-    .comparison-table .header-tooltip {
+    .comparison-table .header-tooltip, .tickets-table .header-tooltip {
       position: absolute;
       bottom: 100%;
       left: 50%;
@@ -275,80 +275,86 @@ app.get('/', (c) => {
       margin-bottom: 0.5rem;
     }
 
-    .comparison-table th:hover .header-tooltip {
+    .comparison-table th:hover .header-tooltip, .tickets-table th:hover .header-tooltip {
       opacity: 1;
     }
 
-    .zero-metrics-modal {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(0, 0, 0, 0.5);
+    @keyframes popoverIn {
+      0%   { opacity: 0; transform: translateY(8px); }
+      60%  { opacity: 1; transform: translateY(-4px); }
+      100% { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes pillPulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(102,126,234,0.5); }
+      50%       { box-shadow: 0 0 0 7px rgba(102,126,234,0); }
+    }
+
+    .zero-metrics-popover {
       display: none;
-      justify-content: center;
-      align-items: center;
-      z-index: 2000;
+      position: absolute;
+      z-index: 100;
+      bottom: calc(100% + 10px);
+      left: 0;
     }
 
-    .zero-metrics-modal .modal-content {
+    .zero-metrics-popover.visible {
+      display: block;
+      animation: popoverIn 0.4s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    }
+
+    .pill-pulse {
+      animation: pillPulse 0.8s ease 3;
+    }
+
+    .zero-metrics-popover .popover-box {
       background: white;
-      padding: 1.5rem;
       border-radius: 12px;
-      max-width: 400px;
+      padding: 1.25rem 1.5rem 1rem;
+      width: 340px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.18);
       position: relative;
-      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+      border: 1px solid #e2e8f0;
     }
 
-    .zero-metrics-modal .modal-close {
+    .zero-metrics-popover .popover-arrow {
       position: absolute;
-      top: 0.75rem;
-      right: 0.75rem;
-      background: none;
-      border: none;
-      font-size: 1.5rem;
-      cursor: pointer;
-      color: #718096;
-      line-height: 1;
-      padding: 0;
-      width: 1.5rem;
-      height: 1.5rem;
-    }
-
-    .zero-metrics-modal .modal-close:hover {
-      color: #2d3748;
-    }
-
-    .zero-metrics-modal p {
-      margin: 0.75rem 0;
-      color: #2d3748;
-      line-height: 1.5;
-    }
-
-    .zero-metrics-modal .modal-hint {
-      font-size: 0.875rem;
-      color: #718096;
-    }
-
-    .zero-metrics-modal .modal-hint strong {
-      color: #4299e1;
-    }
-
-    .zero-metrics-modal .modal-arrow {
-      position: absolute;
-      top: -10px;
-      left: 50%;
-      transform: translateX(-50%);
+      bottom: -10px;
+      left: 2rem;
       width: 0;
       height: 0;
       border-left: 10px solid transparent;
       border-right: 10px solid transparent;
-      border-bottom: 10px solid white;
+      border-top: 10px solid white;
+      filter: drop-shadow(0 2px 2px rgba(0,0,0,0.08));
     }
 
-    .zero-metrics-modal .modal-content {
-      position: fixed;
+    .zero-metrics-popover .popover-close {
+      position: absolute;
+      top: 0.6rem;
+      right: 0.75rem;
+      background: none;
+      border: none;
+      font-size: 1.25rem;
+      cursor: pointer;
+      color: #a0aec0;
+      line-height: 1;
+      padding: 0;
+    }
+
+    .zero-metrics-popover .popover-close:hover { color: #2d3748; }
+
+    .zero-metrics-popover p {
+      margin: 0.5rem 0 0;
+      color: #2d3748;
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+
+    .zero-metrics-popover .popover-hint {
+      font-size: 0.8rem;
+      color: #718096;
+      margin-top: 0.5rem;
     }
 
     .onboarding-arrow {
@@ -489,6 +495,7 @@ app.get('/', (c) => {
       padding: 2rem;
       border-radius: 12px;
       box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+      margin-bottom: 2.5rem;
     }
 
     .comparison-view h2 {
@@ -822,7 +829,7 @@ app.get('/', (c) => {
               <input 
                 type="email" 
                 class="engineer-email"
-                autocomplete="off"
+                autocomplete="new-password"
                 placeholder="Engineer 1 email" 
               >
             </div>
@@ -830,7 +837,7 @@ app.get('/', (c) => {
               <input 
                 type="email" 
                 class="engineer-email"
-                autocomplete="off"
+                autocomplete="new-password"
                 placeholder="Engineer 2 email" 
               >
             </div>
@@ -838,15 +845,30 @@ app.get('/', (c) => {
           <button type="button" id="addEngineerBtn" style="padding: 0.5rem 1rem; background: #667eea; color: white; border: none; border-radius: 6px; cursor: pointer;">+ Add Engineer</button>
         </div>
         <div class="date-filters">
-          <select id="timeRange">
-            <option value="-30d" selected>Last 30 days</option>
-            <option value="-7d">Last 7 days</option>
-            <option value="-365d">Last 52 weeks</option>
-            <option value="all">All time</option>
-            <option value="custom">Custom range</option>
+          <select id="timeRangeType">
+            <option value="days">Date Range</option>
+            <option value="sprint">Sprint</option>
           </select>
-          <input type="date" id="customStartDate" style="display: none;">
-          <input type="date" id="customEndDate" style="display: none;">
+          <div id="daysFilter" style="display: flex; gap: 0.5rem; flex: 1;">
+            <select id="timeRange">
+              <option value="-30d" selected>Last 30 days</option>
+              <option value="-7d">Last 7 days</option>
+              <option value="-365d">Last 52 weeks</option>
+              <option value="all">All time</option>
+              <option value="custom">Custom</option>
+            </select>
+            <input type="date" id="customStartDate" style="display: none;">
+            <input type="date" id="customEndDate" style="display: none;">
+          </div>
+          <div id="sprintFilter" style="display: none; gap: 0.5rem; flex: 1; flex-direction: column;">
+            <div style="display: flex; gap: 0.5rem; align-items: center;">
+              <select id="sprintSelect" style="flex: 1;">
+                <option value="">Select a sprint...</option>
+              </select>
+            </div>
+            <div id="extraSprintSelectors"></div>
+            <button type="button" id="addSprintBtn" style="display:none; align-self: flex-start; padding: 0.4rem 0.75rem; background: #667eea; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.875rem;">+ Add Sprint</button>
+          </div>
         </div>
         <button type="submit" id="searchButton">Search</button>
       </form>
@@ -904,9 +926,25 @@ app.get('/', (c) => {
           <div class="value" id="avgHoursPerStoryPoint">0</div>
           <div class="label">Avg Hours / Story Point</div>
         </div>
+        <div class="metric-card" id="carriedOverCard" style="display: none;">
+          <div class="info-icon">?</div>
+          <div class="info-tooltip">Story points on tickets that were assigned to a <em>previous sprint</em> at some point before being moved into this sprint and closed. Detected by checking sprint change history in Jira changelog.</div>
+          <div class="value" id="carriedOverPoints">0</div>
+          <div class="label">Carried Over Story Points</div>
+          <div style="font-size:0.7rem; color:#718096; margin-top:0.25rem;">Tickets carried in from prior sprints</div>
+          <button type="button" id="carriedOverFilterBtn" style="margin-top:0.5rem; padding:0.3rem 0.6rem; font-size:0.75rem; background:#667eea; color:white; border:none; border-radius:5px; cursor:pointer;">Show Carried Over Tickets</button>
+        </div>
       </div>
 
-      <div class="tickets-section">
+      <div class="tickets-section" style="position: relative;">
+        <div id="zeroMetricsPopover" class="zero-metrics-popover">
+          <div class="popover-box">
+            <button class="popover-close" id="popoverClose">&times;</button>
+            <p><strong>This person doesn't submit worklogs</strong> — they may only create or manage tickets.</p>
+            <p class="popover-hint">Click <strong style="color:#667eea">"All"</strong> below to see all tickets where they were assigned.</p>
+            <div class="popover-arrow"></div>
+          </div>
+        </div>
         <div class="pill-filter" id="pillFilter" style="display: flex; margin-bottom: 1.5rem;">
           <button type="button" class="pill-btn" data-filter="all">All <span class="info-icon">?</span><div class="filter-tooltip">Includes worklog tickets and closed tickets where the user was assigned at any point.</div></button>
           <button type="button" class="pill-btn active" data-filter="worklog">Work Log <span class="info-icon">?</span><div class="filter-tooltip">Tickets where the user logged work.</div></button>
@@ -923,6 +961,7 @@ app.get('/', (c) => {
               <th>Created</th>
               <th>First In Progress</th>
               <th>Closed</th>
+              <th>Sprints <span class="info-icon">?</span><div class="header-tooltip">Number of sprints this ticket appeared in. A value &gt; 1 means it was carried over from a prior sprint. Hover the number to see which sprints.</div></th>
             </tr>
           </thead>
           <tbody id="ticketsTableBody">
@@ -937,15 +976,6 @@ app.get('/', (c) => {
           <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
         </svg>
         <p>Search for an engineer to see their metrics</p>
-      </div>
-
-      <div class="zero-metrics-modal" id="zeroMetricsModal" style="display: none;">
-        <div class="modal-content">
-          <button class="modal-close" id="modalClose">&times;</button>
-          <p>This person does not submit worklogs, maybe they only create tickets?</p>
-          <p class="modal-hint">Click <strong>"All"</strong> filter to see all tickets where they were assigned.</p>
-          <div class="modal-arrow"></div>
-        </div>
       </div>
 
       <div class="onboarding-arrow" id="onboardingArrow" style="display: none;">
@@ -986,50 +1016,59 @@ app.get('/', (c) => {
       const customStart = params.get('customStart');
       const customEnd = params.get('customEnd');
       const timeRange = timeRangeSelect.value;
+      const timeRangeType = timeRangeTypeSelect.value;
+      const selectedSprintIds = getSelectedSprintIds();
 
       // Store comparison data for pill filtering
       window._compareData = data;
+      window._compareContext = { timeRange, customStart, customEnd, timeRangeType, selectedSprintIds };
 
-      // Create comparison view
-      let comparisonHtml = '<div class="comparison-view">';
-      comparisonHtml += '<div class="pill-filter" style="display: flex; margin-bottom: 1.5rem;">';
-      comparisonHtml += '<button type="button" class="pill-btn" data-filter="all">All <span class="info-icon">?</span><div class="filter-tooltip">Includes worklog tickets and closed tickets where the user was assigned at any point.</div></button>';
-      comparisonHtml += '<button type="button" class="pill-btn active" data-filter="worklog">Work Log <span class="info-icon">?</span><div class="filter-tooltip">Tickets where the user logged work.</div></button>';
-      comparisonHtml += '</div>';
-      comparisonHtml += '<h2>Engineer Comparison</h2>';
-      comparisonHtml += '<p class="date-range">' + formatDateRange(data.dateRange) + '</p>';
-      comparisonHtml += '<table class="comparison-table"><thead><tr><th>Rank</th><th>Engineer</th><th>Total Tickets <span class="info-icon">?</span><div class="header-tooltip">Total tickets where the engineer was assigned at any point (All) or logged work (Work Log)</div></th><th>Total Story Points <span class="info-icon">?</span><div class="header-tooltip">Sum of story points from all tickets shown</div></th><th>Total Hours <span class="info-icon">?</span><div class="header-tooltip">Total hours logged by this engineer across all tickets shown</div></th><th>Avg Hours/Ticket <span class="info-icon">?</span><div class="header-tooltip">Average hours logged per ticket. Total hours ÷ total tickets</div></th><th>Avg Cycle Time (days) <span class="info-icon">?</span><div class="header-tooltip">Average days from In Progress to Done. Measures active development time</div></th><th>Avg Lead Time (days) <span class="info-icon">?</span><div class="header-tooltip">Average days from ticket creation to completion. Includes backlog wait time</div></th></tr></thead><tbody id="compareTableBody"></tbody></table></div>';
-
-      const existingComparison = document.querySelector('.comparison-view');
-      if (existingComparison) {
-        existingComparison.remove();
+      // Build sprint label if sprint mode
+      let sprintLabel = '';
+      if (timeRangeType === 'sprint' && data.sprintNames && data.sprintNames.length) {
+        sprintLabel = data.sprintNames.join(' + ');
       }
 
-      results.insertAdjacentHTML('beforeend', comparisonHtml);
+      // Remove old comparison views
+      document.querySelectorAll('.comparison-view').forEach(el => el.remove());
 
-      // Now render rows (after HTML is in DOM)
-      renderCompareRows(data.rankings, 'worklog', timeRange, customStart, customEnd);
+      // Render one table per sprint grouping in data
+      const sprintGroups = data.sprintGroups || [{ sprintName: sprintLabel, dateRange: data.dateRange, rankings: data.rankings }];
+
+      sprintGroups.forEach((group, groupIdx) => {
+        const tableId = 'compareTableBody_' + groupIdx;
+        let comparisonHtml = '<div class="comparison-view" data-group="' + groupIdx + '">';
+        comparisonHtml += '<div class="pill-filter" style="display: flex; margin-bottom: 1.5rem;">';
+        comparisonHtml += '<button type="button" class="pill-btn" data-filter="all">All <span class="info-icon">?</span><div class="filter-tooltip">Includes worklog tickets and closed tickets where the user was assigned at any point.</div></button>';
+        comparisonHtml += '<button type="button" class="pill-btn active" data-filter="worklog">Work Log <span class="info-icon">?</span><div class="filter-tooltip">Tickets where the user logged work.</div></button>';
+        comparisonHtml += '</div>';
+        comparisonHtml += '<h2>Engineer Comparison' + (group.sprintName ? ': ' + group.sprintName : '') + '</h2>';
+        comparisonHtml += '<p class="date-range">' + formatDateRange(group.dateRange) + '</p>';
+        comparisonHtml += '<table class="comparison-table"><thead><tr><th>Rank</th><th>Engineer</th><th>Total Tickets <span class="info-icon">?</span><div class="header-tooltip">Total tickets where the engineer was assigned at any point (All) or logged work (Work Log)</div></th><th>Total Story Points <span class="info-icon">?</span><div class="header-tooltip">Sum of story points from all tickets shown</div></th><th>Carried Over SP <span class="info-icon">?</span><div class="header-tooltip">Story points on tickets closed in this sprint that were originally from a previous sprint.</div></th><th>Total Hours <span class="info-icon">?</span><div class="header-tooltip">Total hours logged by this engineer across all tickets shown</div></th><th>Avg Hours/Ticket <span class="info-icon">?</span><div class="header-tooltip">Average hours logged per ticket. Total hours ÷ total tickets</div></th><th>Avg Cycle Time (days) <span class="info-icon">?</span><div class="header-tooltip">Average days from In Progress to Done. Measures active development time</div></th><th>Avg Lead Time (days) <span class="info-icon">?</span><div class="header-tooltip">Average days from ticket creation to completion. Includes backlog wait time</div></th></tr></thead><tbody id="' + tableId + '"></tbody></table></div>';
+
+        results.insertAdjacentHTML('beforeend', comparisonHtml);
+
+        renderCompareRows(group.rankings, 'worklog', timeRange, customStart, customEnd, timeRangeType, selectedSprintIds[groupIdx] || selectedSprintIds[0] || '', tableId);
+
+        // Wire up pill buttons for this group
+        const groupEl = results.querySelector('.comparison-view[data-group="' + groupIdx + '"]');
+        groupEl.querySelectorAll('.pill-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            groupEl.querySelectorAll('.pill-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            const filter = btn.dataset.filter || 'all';
+            renderCompareRows(group.rankings, filter, timeRange, customStart, customEnd, timeRangeType, selectedSprintIds[groupIdx] || selectedSprintIds[0] || '', tableId);
+          });
+        });
+      });
 
       emptyState.classList.remove('show');
       results.classList.add('show');
-
-      // Wire up compare pill buttons
-      document.querySelectorAll('.comparison-view .pill-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-          document.querySelectorAll('.comparison-view .pill-btn').forEach(b => b.classList.remove('active'));
-          btn.classList.add('active');
-          const filter = btn.dataset.filter || 'all';
-          const compareBody = document.getElementById('compareTableBody');
-          if (compareBody && window._compareData) {
-            compareBody.innerHTML = '';
-            renderCompareRows(window._compareData.rankings, filter, timeRange, customStart, customEnd);
-          }
-        });
-      });
     }
 
-    function renderCompareRows(rankings, filter, timeRange, customStart, customEnd) {
-      const compareBody = document.getElementById('compareTableBody');
+    function renderCompareRows(rankings, filter, timeRange, customStart, customEnd, timeRangeType, sprintId, tableId) {
+      const bodyId = tableId || 'compareTableBody';
+      const compareBody = document.getElementById(bodyId);
       if (!compareBody) return;
 
       let html = '';
@@ -1037,17 +1076,26 @@ app.get('/', (c) => {
         const isWorklog = filter === 'worklog';
         const tickets = isWorklog ? (rank.worklogTotalTickets || 0) : rank.totalTickets;
         const storyPoints = isWorklog ? (rank.worklogTotalStoryPoints || 0) : rank.totalStoryPoints;
+        const carriedOver = rank.carriedOverStoryPoints || 0;
         const hours = isWorklog ? (rank.worklogTotalHours || 0) : rank.totalHours;
         const avgHours = isWorklog ? (rank.worklogAvgHoursPerTicket || 0) : rank.avgHoursPerTicket;
         const cycleTime = isWorklog ? (rank.worklogAvgCycleTimeDays || 0) : rank.avgCycleTimeDays;
         const leadTime = isWorklog ? (rank.worklogAvgLeadTimeDays || 0) : rank.avgLeadTimeDays;
 
-        let singleUrl = '?search=single&email=' + rank.email + '&time=' + timeRange;
-        if (timeRange === 'custom' && customStart && customEnd) {
-          singleUrl += '&customStart=' + customStart + '&customEnd=' + customEnd;
+        let singleUrl = '?search=single&email=' + rank.email;
+        if (timeRangeType === 'sprint' && sprintId) {
+          singleUrl += '&sprintIds=' + sprintId;
+        } else {
+          singleUrl += '&time=' + timeRange;
+          if (timeRange === 'custom' && customStart && customEnd) {
+            singleUrl += '&customStart=' + customStart + '&customEnd=' + customEnd;
+          }
         }
 
-        html += '<tr><td>' + (index + 1) + '</td><td>' + rank.displayName + ' <a href="' + singleUrl + '" class="ticket-link" style="font-size: 0.75rem;">(view)</a></td><td>' + tickets + '</td><td>' + (storyPoints || 0) + '</td><td>' + hours + '</td><td>' + avgHours + '</td><td>' + cycleTime + '</td><td>' + leadTime + '</td></tr>';
+        const carriedOverCell = carriedOver > 0
+          ? '<td style="color:#e53e3e;font-weight:bold">' + carriedOver + '</td>'
+          : '<td>' + carriedOver + '</td>';
+        html += '<tr><td>' + (index + 1) + '</td><td>' + rank.displayName + ' <a href="' + singleUrl + '" class="ticket-link" style="font-size: 0.75rem;">(view)</a></td><td>' + tickets + '</td><td>' + (storyPoints || 0) + '</td>' + carriedOverCell + '<td>' + hours + '</td><td>' + avgHours + '</td><td>' + cycleTime + '</td><td>' + leadTime + '</td></tr>';
       });
       compareBody.innerHTML = html;
     }
@@ -1057,6 +1105,12 @@ app.get('/', (c) => {
     const timeRangeSelect = document.getElementById('timeRange');
     const customStartDate = document.getElementById('customStartDate');
     const customEndDate = document.getElementById('customEndDate');
+    const timeRangeTypeSelect = document.getElementById('timeRangeType');
+    const daysFilter = document.getElementById('daysFilter');
+    const sprintFilter = document.getElementById('sprintFilter');
+    const sprintSelect = document.getElementById('sprintSelect');
+    const addSprintBtn = document.getElementById('addSprintBtn');
+    const extraSprintSelectors = document.getElementById('extraSprintSelectors');
     const searchButton = document.getElementById('searchButton');
     const singleModeBtn = document.getElementById('singleMode');
     const compareModeBtn = document.getElementById('compareMode');
@@ -1073,11 +1127,8 @@ app.get('/', (c) => {
     let currentFilter = 'worklog';
     let allTicketsData = [];
     let engineerCount = 2;
+    let allSprints = [];
 
-    // Wire up modal close button
-    document.getElementById('modalClose')?.addEventListener('click', () => {
-      document.getElementById('zeroMetricsModal').style.display = 'none';
-    });
 
     // Email dropdown functionality
     const emailDropdown = document.getElementById('emailDropdown');
@@ -1131,6 +1182,53 @@ app.get('/', (c) => {
       });
     }
 
+    function wireEmailDropdownForInput(input) {
+      const dropdown = document.createElement('div');
+      dropdown.className = 'email-dropdown';
+      dropdown.style.cssText = 'position: absolute; z-index: 1000; background: white; border: 1px solid #e2e8f0; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); width: 100%; top: 100%; left: 0; display: none; max-height: 200px; overflow-y: auto;';
+      const parent = input.parentElement;
+      parent.style.position = 'relative';
+      parent.appendChild(dropdown);
+
+      function getCompareExclusions() {
+        if (!isCompareMode) return new Set();
+        const used = new Set();
+        document.querySelectorAll('.engineer-email').forEach(el => {
+          if (el !== input && el.value.trim()) used.add(el.value.trim().toLowerCase());
+        });
+        return used;
+      }
+
+      function showCompareDropdown() {
+        const excluded = getCompareExclusions();
+        const value = input.value.toLowerCase();
+        const emails = getSavedEmails().filter(e => e.toLowerCase().includes(value) && !excluded.has(e.toLowerCase()));
+        if (emails.length === 0) { dropdown.style.display = 'none'; return; }
+        dropdown.innerHTML = emails.map(email =>
+          '<div class="email-dropdown-item"><span>' + email + '</span><span class="delete-email" data-email="' + email + '">×</span></div>'
+        ).join('');
+        dropdown.style.display = 'block';
+        dropdown.querySelectorAll('.email-dropdown-item').forEach(item => {
+          item.addEventListener('click', (e) => {
+            if (e.target.classList.contains('delete-email')) {
+              e.stopPropagation();
+              deleteEmail(e.target.dataset.email);
+              showCompareDropdown();
+            } else {
+              input.value = item.querySelector('span').textContent;
+              dropdown.style.display = 'none';
+            }
+          });
+        });
+      }
+
+      input.addEventListener('focus', showCompareDropdown);
+      input.addEventListener('input', showCompareDropdown);
+      document.addEventListener('click', (e) => {
+        if (!parent.contains(e.target)) dropdown.style.display = 'none';
+      }, { capture: true });
+    }
+
     emailInput.addEventListener('focus', () => showEmailDropdown(emailInput, emailDropdown));
     emailInput.addEventListener('input', () => {
       const value = emailInput.value.toLowerCase();
@@ -1161,6 +1259,175 @@ app.get('/', (c) => {
       });
     });
 
+    document.addEventListener('click', (e) => {
+      if (!emailInput.contains(e.target) && !emailDropdown.contains(e.target)) {
+        emailDropdown.style.display = 'none';
+      }
+    }, { capture: true });
+
+    // Time range type toggle (days vs sprint)
+    timeRangeTypeSelect.addEventListener('change', () => {
+      if (timeRangeTypeSelect.value === 'days') {
+        daysFilter.style.display = 'flex';
+        sprintFilter.style.display = 'none';
+        addSprintBtn.style.display = 'none';
+      } else {
+        daysFilter.style.display = 'none';
+        sprintFilter.style.display = 'flex';
+        // Only show add sprint button in compare mode
+        addSprintBtn.style.display = isCompareMode ? 'inline-block' : 'none';
+        fetchSprints();
+      }
+    });
+
+    function getSprintSortDate(sprint) {
+      return new Date(sprint.startDate || sprint.endDate || sprint.completeDate || 0).getTime();
+    }
+
+    function parseDdcSprint(sprintName) {
+      const quarterMatch = sprintName.match(/Q(\d)\.(\d{4})/i);
+      const sprintMatch = sprintName.match(/Sprint\s+(\d+)/i);
+      return {
+        year: quarterMatch ? parseInt(quarterMatch[2], 10) : 0,
+        quarter: quarterMatch ? parseInt(quarterMatch[1], 10) : 0,
+        sprint: sprintMatch ? parseInt(sprintMatch[1], 10) : 0
+      };
+    }
+
+    function sortSprints(sprints) {
+      return [...sprints].sort((a, b) => {
+        const aDdc = a.name?.toUpperCase().startsWith('DDC') ? 1 : 0;
+        const bDdc = b.name?.toUpperCase().startsWith('DDC') ? 1 : 0;
+        if (aDdc !== bDdc) return bDdc - aDdc;
+
+        if (aDdc && bDdc) {
+          const aParts = parseDdcSprint(a.name || '');
+          const bParts = parseDdcSprint(b.name || '');
+          if (aParts.year !== bParts.year) return bParts.year - aParts.year;
+          if (aParts.quarter !== bParts.quarter) return bParts.quarter - aParts.quarter;
+          if (aParts.sprint !== bParts.sprint) return bParts.sprint - aParts.sprint;
+        }
+
+        return getSprintSortDate(b) - getSprintSortDate(a);
+      });
+    }
+
+    function renderSprintOptions() {
+      sprintSelect.innerHTML = '<option value="">Select a sprint...</option>';
+      allSprints.forEach(sprint => {
+        const status = sprint.state === 'closed' ? '(Closed)' : '(Open)';
+        const dates = formatDateRangeSprint(sprint.startDate, sprint.endDate);
+        sprintSelect.innerHTML += '<option value="' + sprint.id + '">' + sprint.name + ' ' + status + ' - ' + dates + '</option>';
+      });
+    }
+
+    sprintSelect.addEventListener('change', refreshExtraSprintOptions);
+
+    function showSprintOnCorrectPage(sprintId) {
+      renderSprintOptions();
+      sprintSelect.value = sprintId;
+    }
+
+    // Fetch sprints from Jira
+    async function fetchSprints() {
+      try {
+        if (allSprints.length > 0) {
+          renderSprintOptions();
+          return;
+        }
+
+        const response = await fetch('/sprints');
+        const data = await response.json();
+        if (data.sprints && data.sprints.length > 0) {
+          allSprints = sortSprints(data.sprints);
+          renderSprintOptions();
+        } else {
+          sprintSelect.innerHTML = '<option value="">No sprints found</option>';
+        }
+      } catch (err) {
+        console.error('Failed to fetch sprints:', err);
+        sprintSelect.innerHTML = '<option value="">Failed to load sprints</option>';
+      }
+    }
+
+    function formatDateRangeSprint(startDate, endDate) {
+      if (!startDate) return 'No start date';
+      const start = new Date(startDate);
+      if (endDate) {
+        const end = new Date(endDate);
+        return start.toLocaleDateString() + ' - ' + end.toLocaleDateString();
+      }
+      return start.toLocaleDateString() + ' - Present';
+    }
+
+    function getSelectedSprintIds() {
+      const ids = [];
+      if (sprintSelect.value) ids.push(sprintSelect.value);
+      extraSprintSelectors.querySelectorAll('.extra-sprint-select').forEach(sel => {
+        if (sel.value) ids.push(sel.value);
+      });
+      return ids;
+    }
+
+    function getAlreadySelectedSprintIds(excludeSel) {
+      const ids = new Set();
+      if (sprintSelect.value) ids.add(sprintSelect.value);
+      extraSprintSelectors.querySelectorAll('.extra-sprint-select').forEach(s => {
+        if (s !== excludeSel && s.value) ids.add(s.value);
+      });
+      return ids;
+    }
+
+    function refreshExtraSprintOptions() {
+      // Update main select: disable anything chosen in extra selects
+      const extraSelected = new Set();
+      extraSprintSelectors.querySelectorAll('.extra-sprint-select').forEach(s => {
+        if (s.value) extraSelected.add(s.value);
+      });
+      Array.from(sprintSelect.options).forEach(opt => {
+        if (opt.value) opt.disabled = extraSelected.has(opt.value);
+      });
+
+      // Update each extra select: disable anything chosen in main or other extra selects
+      extraSprintSelectors.querySelectorAll('.extra-sprint-select').forEach(sel => {
+        const alreadySelected = getAlreadySelectedSprintIds(sel);
+        Array.from(sel.options).forEach(opt => {
+          if (opt.value) opt.disabled = alreadySelected.has(opt.value);
+        });
+      });
+    }
+
+    function buildExtraSprintSelect() {
+      const wrapper = document.createElement('div');
+      wrapper.style.cssText = 'display: flex; gap: 0.5rem; align-items: center; margin-top: 0.4rem;';
+      const sel = document.createElement('select');
+      sel.className = 'extra-sprint-select';
+      sel.style.flex = '1';
+      const alreadySelected = getAlreadySelectedSprintIds(sel);
+      sel.innerHTML = '<option value="">Select a sprint...</option>';
+      allSprints.forEach(sprint => {
+        const status = sprint.state === 'closed' ? '(Closed)' : '(Open)';
+        const dates = formatDateRangeSprint(sprint.startDate, sprint.endDate);
+        const disabled = alreadySelected.has(String(sprint.id)) ? ' disabled' : '';
+        sel.innerHTML += '<option value="' + sprint.id + '"' + disabled + '>' + sprint.name + ' ' + status + ' - ' + dates + '</option>';
+      });
+      sel.addEventListener('change', refreshExtraSprintOptions);
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.textContent = '×';
+      removeBtn.style.cssText = 'padding: 0.4rem 0.6rem; background: #e53e3e; color: white; border: none; border-radius: 6px; cursor: pointer;';
+      removeBtn.addEventListener('click', () => { wrapper.remove(); refreshExtraSprintOptions(); });
+      wrapper.appendChild(sel);
+      wrapper.appendChild(removeBtn);
+      return wrapper;
+    }
+
+    addSprintBtn.addEventListener('click', () => {
+      if (allSprints.length === 0) { alert('Please wait for sprints to load first.'); return; }
+      extraSprintSelectors.appendChild(buildExtraSprintSelect());
+      refreshExtraSprintOptions();
+    });
+
     // Mode toggle
     singleModeBtn.addEventListener('click', () => {
       isCompareMode = false;
@@ -1170,6 +1437,9 @@ app.get('/', (c) => {
       compareEngineerForm.style.display = 'none';
       pillFilter.style.display = 'flex';
       emailInput.required = true;
+      addSprintBtn.style.display = 'none';
+      // Remove extra sprint selectors
+      extraSprintSelectors.innerHTML = '';
 
       // Remove required from engineer inputs
       document.querySelectorAll('.engineer-email').forEach(input => {
@@ -1180,14 +1450,11 @@ app.get('/', (c) => {
       const userInfo = document.getElementById('userInfo');
       const metrics = document.querySelector('.metrics');
       const ticketsSection = document.querySelector('.tickets-section');
-      const existingComparison = document.querySelector('.comparison-view');
+      document.querySelectorAll('.comparison-view').forEach(el => el.remove());
 
       userInfo.style.display = 'block';
       metrics.style.display = 'grid';
       ticketsSection.style.display = 'block';
-      if (existingComparison) {
-        existingComparison.remove();
-      }
     });
 
     compareModeBtn.addEventListener('click', () => {
@@ -1198,6 +1465,10 @@ app.get('/', (c) => {
       compareEngineerForm.style.display = 'block';
       pillFilter.style.display = 'none';
       emailInput.required = false;
+      // Show add sprint button only in compare+sprint mode
+      if (timeRangeTypeSelect.value === 'sprint') {
+        addSprintBtn.style.display = 'inline-block';
+      }
 
       // Add required to engineer inputs
       document.querySelectorAll('.engineer-email').forEach(input => {
@@ -1222,7 +1493,14 @@ app.get('/', (c) => {
           ? ticket.allWorkers.map(w => '<div class="worker"><span>' + w.displayName + '</span><span>' + w.hours + 'h</span></div>').join('')
           : '<div class="worker">No other workers</div>'
 
-        return '<tr><td><a href="' + jiraBaseUrl + ticket.key + '" target="_blank" class="ticket-link">' + ticket.key + '</a></td><td class="ticket-summary" title="' + ticket.summary + '">' + ticket.summary + '</td><td class="ticket-points">' + (ticket.storyPoints || '-') + '</td><td class="hours-tooltip"><span class="ticket-hours">' + ticket.userHours + 'h</span><div class="tooltip-content">' + workersHtml + '<div class="note">Hours shown above are for ' + userName.textContent + ' only</div></div></td><td>' + ticket.comments + '</td><td>' + formatDate(ticket.created) + '</td><td>' + (ticket.firstInProgress ? formatDate(ticket.firstInProgress) : '-') + '</td><td>' + (ticket.closedDate ? formatDate(ticket.closedDate) : '-') + '</td></tr>'
+        const sprintCountVal = ticket.sprintCount != null ? ticket.sprintCount : '-';
+        const sprintNamesHtml = (ticket.seenSprintNames && ticket.seenSprintNames.length)
+          ? ticket.seenSprintNames.map(n => '<div style="white-space:nowrap;padding:2px 0">' + n + '</div>').join('')
+          : '';
+        const sprintCell = ticket.sprintCount > 1
+          ? '<td style="text-align:center; position:relative;"><span class="hours-tooltip" style="cursor:default;"><span style="font-weight:bold;color:#e53e3e">' + sprintCountVal + '</span><div class="tooltip-content" style="min-width:200px;text-align:left;">' + sprintNamesHtml + '</div></span></td>'
+          : '<td style="text-align:center;">' + (sprintNamesHtml ? '<span class="hours-tooltip" style="cursor:default;">' + sprintCountVal + '<div class="tooltip-content" style="min-width:200px;text-align:left;">' + sprintNamesHtml + '</div></span>' : sprintCountVal) + '</td>';
+        return '<tr><td><a href="' + jiraBaseUrl + ticket.key + '" target="_blank" class="ticket-link">' + ticket.key + '</a></td><td class="ticket-summary" title="' + ticket.summary + '">' + ticket.summary + '</td><td class="ticket-points">' + (ticket.storyPoints || '-') + '</td><td class="hours-tooltip"><span class="ticket-hours">' + ticket.userHours + 'h</span><div class="tooltip-content">' + workersHtml + '<div class="note">Hours shown above are for ' + userName.textContent + ' only</div></div></td><td>' + ticket.comments + '</td><td>' + formatDate(ticket.created) + '</td><td>' + (ticket.firstInProgress ? formatDate(ticket.firstInProgress) : '-') + '</td><td>' + (ticket.closedDate ? formatDate(ticket.closedDate) : '-') + '</td>' + sprintCell + '</tr>'
       }).join('');
 
       // Update metrics based on filter
@@ -1254,23 +1532,36 @@ app.get('/', (c) => {
     }
 
     function showZeroMetricsModal() {
-      const modal = document.getElementById('zeroMetricsModal');
+      const popover = document.getElementById('zeroMetricsPopover');
       const pillFilter = document.getElementById('pillFilter');
-      if (!modal || !pillFilter) return;
+      if (!popover || !pillFilter) return;
 
-      // Position modal above the pill filter
-      const filterRect = pillFilter.getBoundingClientRect();
-      const modalContent = modal.querySelector('.modal-content');
-      if (modalContent) {
-        const modalWidth = 400;
-        const modalLeft = Math.max(10, filterRect.left + (filterRect.width / 2) - (modalWidth / 2));
-        modalContent.style.position = 'fixed';
-        modalContent.style.top = (filterRect.bottom + 15) + 'px';
-        modalContent.style.left = modalLeft + 'px';
-        modalContent.style.transform = 'none';
+      popover.classList.remove('visible');
+      void popover.offsetWidth; // force reflow to restart animation
+      popover.classList.add('visible');
+      pillFilter.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+      // Pulse the "All" pill button to draw attention
+      const allPill = pillFilter.querySelector('[data-filter="all"]');
+      if (allPill) {
+        allPill.classList.remove('pill-pulse');
+        void allPill.offsetWidth;
+        allPill.classList.add('pill-pulse');
+        allPill.addEventListener('animationend', () => allPill.classList.remove('pill-pulse'), { once: true });
       }
 
-      modal.style.display = 'flex';
+      // Close button
+      document.getElementById('popoverClose').onclick = () => { popover.classList.remove('visible'); popover.style.display = 'none'; };
+
+      // Dismiss on outside click
+      setTimeout(() => {
+        document.addEventListener('click', function dismissPopover(e) {
+          if (!popover.contains(e.target)) {
+            popover.style.display = 'none';
+            document.removeEventListener('click', dismissPopover);
+          }
+        });
+      }, 0);
     }
 
     function updateMetricsForFilter() {
@@ -1302,8 +1593,9 @@ app.get('/', (c) => {
       engineerCount++;
       const wrapper = document.createElement('div');
       wrapper.className = 'engineer-input-wrapper';
-      wrapper.innerHTML = '<input type="email" class="engineer-email" autocomplete="off" placeholder="Engineer ' + engineerCount + ' email"><button type="button" class="delete-engineer-btn">×</button>';
+      wrapper.innerHTML = '<input type="email" class="engineer-email" autocomplete="new-password" placeholder="Engineer ' + engineerCount + ' email"><button type="button" class="delete-engineer-btn">×</button>';
       engineerInputs.appendChild(wrapper);
+      wireEmailDropdownForInput(wrapper.querySelector('.engineer-email'));
 
       // Wire up delete button
       wrapper.querySelector('.delete-engineer-btn').addEventListener('click', () => {
@@ -1315,9 +1607,10 @@ app.get('/', (c) => {
       });
     });
 
-    // Add delete buttons to initial engineer inputs
+    // Add delete buttons and email dropdowns to initial engineer inputs
     document.querySelectorAll('.engineer-input-wrapper').forEach(wrapper => {
       const input = wrapper.querySelector('input');
+      wireEmailDropdownForInput(input);
       const deleteBtn = document.createElement('button');
       deleteBtn.type = 'button';
       deleteBtn.className = 'delete-engineer-btn';
@@ -1359,12 +1652,21 @@ app.get('/', (c) => {
 
     searchForm.addEventListener('submit', async (e) => {
       e.preventDefault();
+      const timeRangeType = timeRangeTypeSelect.value;
       const timeRange = timeRangeSelect.value;
       const customStart = customStartDate.value;
       const customEnd = customEndDate.value;
+      const selectedSprintIds = getSelectedSprintIds();
+      const sprintId = selectedSprintIds[0] || '';
 
-      if (timeRange === 'custom' && (!customStart || !customEnd)) {
-        error.textContent = 'Please select both start and end dates for custom range';
+      if (timeRangeType === 'days') {
+        if (timeRange === 'custom' && (!customStart || !customEnd)) {
+          error.textContent = 'Please select both start and end dates for custom range';
+          error.classList.add('show');
+          return;
+        }
+      } else if (timeRangeType === 'sprint' && selectedSprintIds.length === 0) {
+        error.textContent = 'Please select a sprint';
         error.classList.add('show');
         return;
       }
@@ -1380,21 +1682,25 @@ app.get('/', (c) => {
         let data;
 
         if (isCompareMode) {
-          const emails = Array.from(document.querySelectorAll('.engineer-email'))
-            .map(input => input.value.trim())
-            .filter(email => email);
+          const inputs = document.querySelectorAll('.engineer-email');
+          const emails = Array.from(inputs).map((input) => input.value.trim()).filter(e => e);
 
           if (emails.length < 2) {
-            error.textContent = 'Please add at least 2 engineers to compare';
+            error.textContent = 'Please enter at least 2 engineer emails to compare';
             error.classList.add('show');
             loading.classList.remove('show');
             searchButton.disabled = false;
             return;
           }
 
-          url = '/compare?emails=' + emails.join(',') + '&timeRange=' + timeRange;
-          if (timeRange === 'custom') {
-            url += '&customStart=' + customStart + '&customEnd=' + customEnd;
+          let url = '/compare?emails=' + emails.join(',');
+          if (timeRangeType === 'days') {
+            url += '&timeRange=' + timeRange;
+            if (timeRange === 'custom') {
+              url += '&customStart=' + customStart + '&customEnd=' + customEnd;
+            }
+          } else if (timeRangeType === 'sprint') {
+            url += '&sprintIds=' + selectedSprintIds.join(',');
           }
 
           const response = await fetch(url);
@@ -1408,11 +1714,15 @@ app.get('/', (c) => {
           
           // Update URL with search parameters (no encoding)
           let urlParams = '?search=compare&email=' + emails.join(',');
-          if (timeRange !== '-30d') {
-            urlParams += '&time=' + timeRange;
-          }
-          if (timeRange === 'custom') {
-            urlParams += '&customStart=' + customStart + '&customEnd=' + customEnd;
+          if (timeRangeType === 'days') {
+            if (timeRange !== '-30d') {
+              urlParams += '&time=' + timeRange;
+            }
+            if (timeRange === 'custom') {
+              urlParams += '&customStart=' + customStart + '&customEnd=' + customEnd;
+            }
+          } else if (timeRangeType === 'sprint') {
+            urlParams += '&sprintIds=' + selectedSprintIds.join(',');
           }
           window.history.pushState({}, '', urlParams);
 
@@ -1422,9 +1732,14 @@ app.get('/', (c) => {
           const email = emailInput.value.trim();
           if (!email) return;
 
-          url = '/metrics?email=' + email + '&timeRange=' + timeRange;
-          if (timeRange === 'custom') {
-            url += '&customStart=' + customStart + '&customEnd=' + customEnd;
+          url = '/metrics?email=' + email;
+          if (timeRangeType === 'days') {
+            url += '&timeRange=' + timeRange;
+            if (timeRange === 'custom') {
+              url += '&customStart=' + customStart + '&customEnd=' + customEnd;
+            }
+          } else if (timeRangeType === 'sprint') {
+            url += '&sprintIds=' + selectedSprintIds.join(',');
           }
 
           const response = await fetch(url);
@@ -1454,6 +1769,55 @@ app.get('/', (c) => {
           // Store metrics data for pill filtering
           window._singleMetricsData = data;
 
+          // Show carried-over story points if sprint mode
+          const carriedOverCard = document.getElementById('carriedOverCard');
+          const carriedOverEl = document.getElementById('carriedOverPoints');
+          const carriedOverBtn = document.getElementById('carriedOverFilterBtn');
+          if (data.carriedOverStoryPoints != null && carriedOverCard && carriedOverEl) {
+            carriedOverEl.textContent = data.carriedOverStoryPoints;
+            carriedOverCard.style.display = 'block';
+            if (carriedOverBtn) {
+              let carriedOverActive = false;
+              const carriedTickets = (data.tickets || []).filter(t => t.carriedOver);
+              carriedOverBtn.onclick = () => {
+                const ticketsSection = document.querySelector('.tickets-section');
+                const heading = ticketsSection.querySelector('h2');
+                if (!carriedOverActive) {
+                  carriedOverActive = true;
+                  carriedOverBtn.textContent = 'Hide Carried Over Tickets';
+                  carriedOverBtn.style.background = '#e53e3e';
+                  allTicketsData = carriedTickets;
+                  filterAndDisplayTickets();
+                  if (heading) {
+                    heading.textContent = 'Carried Over Tickets (' + carriedTickets.length + ')';
+                    heading.style.display = 'inline';
+                    // Add clear button next to heading
+                    let clearBtn = document.getElementById('carriedOverClearBtn');
+                    if (!clearBtn) {
+                      clearBtn = document.createElement('button');
+                      clearBtn.id = 'carriedOverClearBtn';
+                      clearBtn.textContent = 'Clear';
+                      clearBtn.style.cssText = 'margin-left:0.75rem; padding:0.2rem 0.5rem; font-size:0.75rem; background:#718096; color:white; border:none; border-radius:4px; cursor:pointer; vertical-align:middle;';
+                      clearBtn.addEventListener('click', () => carriedOverBtn.click());
+                      heading.parentNode.insertBefore(clearBtn, heading.nextSibling);
+                    }
+                  }
+                } else {
+                  carriedOverActive = false;
+                  carriedOverBtn.textContent = 'Show Carried Over Tickets';
+                  carriedOverBtn.style.background = '#667eea';
+                  allTicketsData = data.tickets || [];
+                  filterAndDisplayTickets();
+                  if (heading) heading.textContent = 'Tickets';
+                  const clearBtn = document.getElementById('carriedOverClearBtn');
+                  if (clearBtn) clearBtn.remove();
+                }
+              };
+            }
+          } else if (carriedOverCard) {
+            carriedOverCard.style.display = 'none';
+          }
+
           // Store all tickets data for client-side filtering
           allTicketsData = data.tickets || [];
 
@@ -1481,11 +1845,15 @@ app.get('/', (c) => {
           
           // Update URL with search parameters (no encoding)
           let urlParams = '?search=single&email=' + email;
-          if (timeRange !== '-30d') {
-            urlParams += '&time=' + timeRange;
-          }
-          if (timeRange === 'custom') {
-            urlParams += '&customStart=' + customStart + '&customEnd=' + customEnd;
+          if (timeRangeType === 'days') {
+            if (timeRange !== '-30d') {
+              urlParams += '&time=' + timeRange;
+            }
+            if (timeRange === 'custom') {
+              urlParams += '&customStart=' + customStart + '&customEnd=' + customEnd;
+            }
+          } else if (timeRangeType === 'sprint') {
+            urlParams += '&sprintIds=' + selectedSprintIds.join(',');
           }
           window.history.pushState({}, '', urlParams);
         }
@@ -1516,29 +1884,74 @@ app.get('/', (c) => {
       const timeParam = params.get('time');
       const customStartParam = params.get('customStart');
       const customEndParam = params.get('customEnd');
+      const sprintIdsParam = params.get('sprintIds') || params.get('sprintId');
 
       if (!searchMode || !emailsParam) return;
 
       const emails = emailsParam.split(',').map(e => e.trim()).filter(Boolean);
       if (!emails.length) return;
 
-      // Set time range if provided
-      if (timeParam) {
-        const validRanges = ['-7d', '-30d', '-365d', 'all'];
-        if (validRanges.includes(timeParam)) {
-          timeRangeSelect.value = timeParam;
-        } else if (timeParam.startsWith('-') && timeParam.endsWith('d')) {
-          // Custom range like -90d
-          const days = parseInt(timeParam.slice(1, -1));
-          if (!isNaN(days) && days > 0) {
-            timeRangeSelect.value = 'custom';
-            const endDate = new Date();
-            const startDate = new Date();
-            startDate.setDate(startDate.getDate() - days);
-            customStartDate.value = startDate.toISOString().split('T')[0];
-            customEndDate.value = endDate.toISOString().split('T')[0];
-            customStartDate.style.display = 'block';
-            customEndDate.style.display = 'block';
+      const runSearch = () => {
+        if (searchMode === 'single') {
+          emailInput.value = emails[0];
+          searchForm.dispatchEvent(new Event('submit'));
+        } else if (searchMode === 'compare') {
+          // Switch to compare mode
+          compareModeBtn.click();
+
+          // Fill in emails
+          const inputs = document.querySelectorAll('.engineer-email');
+          emails.forEach((email, i) => {
+            if (i < inputs.length) {
+              inputs[i].value = email;
+            } else {
+              // Add more inputs if needed
+              addEngineerBtn.click();
+              const newInputs = document.querySelectorAll('.engineer-email');
+              newInputs[newInputs.length - 1].value = email;
+            }
+          });
+
+          searchForm.dispatchEvent(new Event('submit'));
+        }
+      };
+
+      // Handle sprint parameter
+      if (sprintIdsParam) {
+        timeRangeTypeSelect.value = 'sprint';
+        daysFilter.style.display = 'none';
+        sprintFilter.style.display = 'flex';
+        fetchSprints().then(() => {
+          const ids = sprintIdsParam.split(',');
+          showSprintOnCorrectPage(ids[0]);
+          // Restore extra sprint selectors
+          ids.slice(1).forEach(id => {
+            const wrapper = buildExtraSprintSelect();
+            extraSprintSelectors.appendChild(wrapper);
+            wrapper.querySelector('.extra-sprint-select').value = id;
+          });
+          runSearch();
+        });
+        return;
+      } else {
+        // Set time range if provided
+        if (timeParam) {
+          const validRanges = ['-7d', '-30d', '-365d', 'all'];
+          if (validRanges.includes(timeParam)) {
+            timeRangeSelect.value = timeParam;
+          } else if (timeParam.startsWith('-') && timeParam.endsWith('d')) {
+            // Custom range like -90d
+            const days = parseInt(timeParam.slice(1, -1));
+            if (!isNaN(days) && days > 0) {
+              timeRangeSelect.value = 'custom';
+              const endDate = new Date();
+              const startDate = new Date();
+              startDate.setDate(startDate.getDate() - days);
+              customStartDate.value = startDate.toISOString().split('T')[0];
+              customEndDate.value = endDate.toISOString().split('T')[0];
+              customStartDate.style.display = 'block';
+              customEndDate.style.display = 'block';
+            }
           }
         }
       }
@@ -1552,28 +1965,7 @@ app.get('/', (c) => {
         customEndDate.style.display = 'block';
       }
 
-      if (searchMode === 'single') {
-        emailInput.value = emails[0];
-        searchForm.dispatchEvent(new Event('submit'));
-      } else if (searchMode === 'compare') {
-        // Switch to compare mode
-        compareModeBtn.click();
-
-        // Fill in emails
-        const inputs = document.querySelectorAll('.engineer-email');
-        emails.forEach((email, i) => {
-          if (i < inputs.length) {
-            inputs[i].value = email;
-          } else {
-            // Add more inputs if needed
-            addEngineerBtn.click();
-            const newInputs = document.querySelectorAll('.engineer-email');
-            newInputs[newInputs.length - 1].value = email;
-          }
-        });
-
-        searchForm.dispatchEvent(new Event('submit'));
-      }
+      runSearch();
     })();
   </script>
 </body>
@@ -1638,6 +2030,8 @@ app.get('/metrics', async (c) => {
   const timeRange = c.req.query('timeRange') || 'all'
   const customStart = c.req.query('customStart')
   const customEnd = c.req.query('customEnd')
+  const sprintIdsRaw = c.req.query('sprintIds') || c.req.query('sprintId')
+  const sprintIds = sprintIdsRaw ? sprintIdsRaw.split(',').map(s => s.trim()).filter(Boolean) : []
 
   if (!email) {
     return c.json({ error: 'Missing email' }, 400)
@@ -1651,7 +2045,25 @@ app.get('/metrics', async (c) => {
     }
 
     let timeFilter = ''
-    if (timeRange === 'custom' && customStart && customEnd) {
+    let sprintFilter = ''
+    let sprintStartDate: string | null = null
+    let sprintEndDate: string | null = null
+    const sprintNames: string[] = []
+
+    if (sprintIds.length > 0) {
+      // Fetch all sprint details in parallel
+      const sprintDetails: any[] = await Promise.all(
+        sprintIds.map(id => jiraFetch(c.env, `/rest/agile/1.0/sprint/${id}`))
+      )
+      // Use earliest startDate and latest endDate for display
+      const starts = sprintDetails.map(s => s.startDate).filter(Boolean)
+      const ends = sprintDetails.map(s => s.endDate || s.completeDate).filter(Boolean)
+      sprintStartDate = starts.length ? starts.sort()[0] : null
+      sprintEndDate = ends.length ? ends.sort().reverse()[0] : null
+      sprintDetails.forEach(s => s.name && sprintNames.push(s.name))
+      // Build JQL: sprint in (id1, id2, ...)
+      sprintFilter = ` AND sprint in (${sprintIds.join(',')})`
+    } else if (timeRange === 'custom' && customStart && customEnd) {
       timeFilter = ` AND worklogDate >= "${customStart}" AND worklogDate <= "${customEnd}"`
     } else if (timeRange !== 'all') {
       timeFilter = ` AND worklogDate >= ${timeRange}`
@@ -1667,36 +2079,38 @@ app.get('/metrics', async (c) => {
     const storyPointsFieldId = storyPointsField?.id || 'customfield_10016'
     console.log(`Story points field: ${storyPointsField?.name} (${storyPointsFieldId})`)
 
-    const worklogJqlQuery = `worklogAuthor = "${user.accountId}" AND statusCategory = Done${timeFilter}`
+    const worklogJqlQuery = `worklogAuthor = "${user.accountId}" AND statusCategory = Done${sprintFilter}${timeFilter}`
     console.log(`Worklog JQL Query: ${worklogJqlQuery}`)
 
     const worklogJql = encodeURIComponent(worklogJqlQuery)
 
     const worklogSearch: any = await jiraFetch(
       c.env,
-      `/rest/api/3/search/jql?jql=${worklogJql}&expand=changelog&fields=summary,${storyPointsFieldId},created,comment`
+      `/rest/api/3/search/jql?jql=${worklogJql}&expand=changelog&fields=summary,${storyPointsFieldId},created,comment,customfield_10020`
     )
 
     console.log(`Worklog Issues found: ${worklogSearch.issues?.length || 0}`)
 
     const worklogIssues = worklogSearch.issues || []
 
-    // Fetch closed tickets (for 'closed' filter)
-    let closedTimeFilter = ''
-    if (timeRange === 'custom' && customStart && customEnd) {
-      closedTimeFilter = ` AND updated >= "${customStart}" AND updated <= "${customEnd}"`
+    // Fetch closed tickets (for 'all' filter)
+    let closedExtraFilter = ''
+    if (sprintIds.length > 0) {
+      closedExtraFilter = ` AND sprint in (${sprintIds.join(',')})`
+    } else if (timeRange === 'custom' && customStart && customEnd) {
+      closedExtraFilter = ` AND updated >= "${customStart}" AND updated <= "${customEnd}"`
     } else if (timeRange !== 'all') {
-      closedTimeFilter = ` AND updated >= ${timeRange}`
+      closedExtraFilter = ` AND updated >= ${timeRange}`
     }
 
-    const closedJqlQuery = `assignee was "${user.accountId}" AND statusCategory = Done${closedTimeFilter}`
+    const closedJqlQuery = `assignee was "${user.accountId}" AND statusCategory = Done${closedExtraFilter}`
     console.log(`Closed JQL Query: ${closedJqlQuery}`)
 
     const closedJql = encodeURIComponent(closedJqlQuery)
 
     const closedSearch: any = await jiraFetch(
       c.env,
-      `/rest/api/3/search/jql?jql=${closedJql}&expand=changelog&fields=summary,${storyPointsFieldId},created,comment`
+      `/rest/api/3/search/jql?jql=${closedJql}&expand=changelog&fields=summary,${storyPointsFieldId},created,comment,customfield_10020`
     )
 
     console.log(`Closed Issues found: ${closedSearch.issues?.length || 0}`)
@@ -1748,6 +2162,9 @@ app.get('/metrics', async (c) => {
 
       let firstInProgress = null
       let closedDate = null
+      let carriedOver = false
+      const seenSprintIds = new Set<string>()
+      const sprintIdNameMap: Record<string, string> = {}
 
       const histories = issue.changelog?.histories || []
 
@@ -1767,8 +2184,37 @@ app.get('/metrics', async (c) => {
           ) {
             closedDate = history.created
           }
+
+          // Track all sprint IDs+names this ticket has ever been in
+          if (item.field === 'Sprint') {
+            const toIds = (item.to || '').split(',').map((s: string) => s.trim()).filter(Boolean)
+            const fromIds = (item.from || '').split(',').map((s: string) => s.trim()).filter(Boolean)
+            const toNames = (item.toString || '').split(',').map((s: string) => s.trim()).filter(Boolean)
+            const fromNames = (item.fromString || '').split(',').map((s: string) => s.trim()).filter(Boolean)
+            toIds.forEach((id: string, i: number) => { seenSprintIds.add(id); if (toNames[i]) sprintIdNameMap[id] = toNames[i] })
+            fromIds.forEach((id: string, i: number) => { seenSprintIds.add(id); if (fromNames[i]) sprintIdNameMap[id] = fromNames[i] })
+
+            // Detect carry-over into target sprint
+            if (sprintIds.length > 0) {
+              const movedIntoTarget = toIds.some((id: string) => sprintIds.includes(id))
+              const cameFromDifferentSprint = fromIds.some((id: string) => !sprintIds.includes(id))
+              if (movedIntoTarget && cameFromDifferentSprint) {
+                carriedOver = true
+              }
+            }
+          }
         }
       }
+
+      // Also add current sprint from fields if available
+      const currentSprintField = issue.fields?.sprint || issue.fields?.customfield_10020
+      if (currentSprintField) {
+        const arr = Array.isArray(currentSprintField) ? currentSprintField : [currentSprintField]
+        arr.forEach((s: any) => { if (s?.id) { seenSprintIds.add(String(s.id)); if (s.name) sprintIdNameMap[String(s.id)] = s.name } })
+      }
+
+      const sprintCount = seenSprintIds.size || null
+      const seenSprintNames = Array.from(seenSprintIds).map(id => sprintIdNameMap[id] || id)
 
       worklogResults.push({
         key: issue.key,
@@ -1780,7 +2226,10 @@ app.get('/metrics', async (c) => {
         closedDate,
         userHours: +(totalSeconds / 3600).toFixed(2),
         allWorkers: workersList,
-        type: 'worklog'
+        type: 'worklog',
+        carriedOver,
+        sprintCount,
+        seenSprintNames
       })
     }
 
@@ -1796,6 +2245,9 @@ app.get('/metrics', async (c) => {
 
       let firstInProgress = null
       let closedDate = null
+      let carriedOver = false
+      const seenSprintIds = new Set<string>()
+      const sprintIdNameMap: Record<string, string> = {}
 
       const histories = issue.changelog?.histories || []
 
@@ -1815,8 +2267,34 @@ app.get('/metrics', async (c) => {
           ) {
             closedDate = history.created
           }
+
+          if (item.field === 'Sprint') {
+            const toIds = (item.to || '').split(',').map((s: string) => s.trim()).filter(Boolean)
+            const fromIds = (item.from || '').split(',').map((s: string) => s.trim()).filter(Boolean)
+            const toNames = (item.toString || '').split(',').map((s: string) => s.trim()).filter(Boolean)
+            const fromNames = (item.fromString || '').split(',').map((s: string) => s.trim()).filter(Boolean)
+            toIds.forEach((id: string, i: number) => { seenSprintIds.add(id); if (toNames[i]) sprintIdNameMap[id] = toNames[i] })
+            fromIds.forEach((id: string, i: number) => { seenSprintIds.add(id); if (fromNames[i]) sprintIdNameMap[id] = fromNames[i] })
+
+            if (sprintIds.length > 0) {
+              const movedIntoTarget = toIds.some((id: string) => sprintIds.includes(id))
+              const cameFromDifferentSprint = fromIds.some((id: string) => !sprintIds.includes(id))
+              if (movedIntoTarget && cameFromDifferentSprint) {
+                carriedOver = true
+              }
+            }
+          }
         }
       }
+
+      const currentSprintField = issue.fields?.sprint || issue.fields?.customfield_10020
+      if (currentSprintField) {
+        const arr = Array.isArray(currentSprintField) ? currentSprintField : [currentSprintField]
+        arr.forEach((s: any) => { if (s?.id) { seenSprintIds.add(String(s.id)); if (s.name) sprintIdNameMap[String(s.id)] = s.name } })
+      }
+
+      const sprintCount = seenSprintIds.size || null
+      const seenSprintNames = Array.from(seenSprintIds).map(id => sprintIdNameMap[id] || id)
 
       closedResults.push({
         key: issue.key,
@@ -1828,6 +2306,9 @@ app.get('/metrics', async (c) => {
         closedDate,
         userHours: 0,
         allWorkers: [],
+        carriedOver,
+        sprintCount,
+        seenSprintNames,
         type: 'closed'
       })
     }
@@ -1899,9 +2380,22 @@ app.get('/metrics', async (c) => {
     const worklogTicketsWithPoints = worklogResults.filter((r: any) => r.storyPoints)
     const worklogTotalStoryPoints = worklogTicketsWithPoints.reduce((sum: number, r: any) => sum + (r.storyPoints || 0), 0)
 
+    // Carried-over story points: detected via changelog sprint field changes
+    let carriedOverStoryPoints: number | null = null
+    if (sprintIds.length > 0) {
+      carriedOverStoryPoints = allResults
+        .filter((r: any) => r.carriedOver)
+        .reduce((sum: number, r: any) => sum + (r.storyPoints || 0), 0)
+    }
+
     // Calculate date range
     let dateRange = { startDate: null as string | null, endDate: null as string | null }
-    if (timeRange === 'custom' && customStart && customEnd) {
+    if (sprintIds.length > 0 && sprintStartDate) {
+      dateRange.startDate = new Date(sprintStartDate).toISOString()
+      if (sprintEndDate) {
+        dateRange.endDate = new Date(sprintEndDate).toISOString()
+      }
+    } else if (timeRange === 'custom' && customStart && customEnd) {
       dateRange.startDate = new Date(customStart).toISOString()
       dateRange.endDate = new Date(customEnd).toISOString()
     } else if (timeRange === 'all' && worklogResults.length > 0) {
@@ -1944,6 +2438,8 @@ app.get('/metrics', async (c) => {
       worklogAvgCycleTimeDays,
       worklogAvgLeadTimeDays,
       worklogTotalStoryPoints,
+      carriedOverStoryPoints,
+      sprintNames,
       tickets: allResults
     })
   } catch (err: any) {
@@ -1956,14 +2452,14 @@ app.get('/compare', async (c) => {
   const timeRange = c.req.query('timeRange') || '-30d'
   const customStart = c.req.query('customStart')
   const customEnd = c.req.query('customEnd')
+  const sprintIdsRaw = c.req.query('sprintIds') || c.req.query('sprintId')
+  const sprintIds = sprintIdsRaw ? sprintIdsRaw.split(',').map(s => s.trim()).filter(Boolean) : []
 
   if (!emails || emails.length < 2) {
     return c.json({ error: 'At least 2 emails required' }, 400)
   }
 
   try {
-    const results = []
-
     // Find the story points field ID
     const allFields: any = await jiraFetch(c.env, '/rest/api/3/field')
     const storyPointsField = allFields.find((f: any) => 
@@ -1972,12 +2468,38 @@ app.get('/compare', async (c) => {
     )
     const storyPointsFieldId = storyPointsField?.id || 'customfield_10016'
 
+    // Fetch all sprint details up-front (if any)
+    const sprintDetailsMap: Record<string, any> = {}
+    const sprintNames: string[] = []
+    if (sprintIds.length > 0) {
+      const details: any[] = await Promise.all(
+        sprintIds.map(id => jiraFetch(c.env, `/rest/agile/1.0/sprint/${id}`))
+      )
+      details.forEach((s, i) => {
+        sprintDetailsMap[sprintIds[i]] = s
+        if (s.name) sprintNames.push(s.name)
+      })
+    }
+
+    // Process each sprint separately so we get one table per sprint
+    const sprintGroups: any[] = []
+    const effectiveSprints = sprintIds.length > 0 ? sprintIds : [null]
+
+    for (const currentSprintId of effectiveSprints) {
+      const sprintDetail = currentSprintId ? sprintDetailsMap[currentSprintId] : null
+      const sprintStartDate: string | null = sprintDetail?.startDate || null
+      const sprintEndDate: string | null = sprintDetail?.endDate || sprintDetail?.completeDate || null
+      const groupResults: any[] = []
+
     for (const email of emails) {
       const user = await findUserByEmail(c.env, email)
       if (!user?.accountId) continue
 
       let timeFilter = ''
-      if (timeRange === 'custom' && customStart && customEnd) {
+      let sprintJql = ''
+      if (currentSprintId) {
+        sprintJql = ` AND sprint = ${currentSprintId}`
+      } else if (timeRange === 'custom' && customStart && customEnd) {
         timeFilter = ` AND worklogDate >= "${customStart}" AND worklogDate <= "${customEnd}"`
       } else if (timeRange !== 'all') {
         timeFilter = ` AND worklogDate >= ${timeRange}`
@@ -1985,7 +2507,7 @@ app.get('/compare', async (c) => {
 
       // Fetch worklog tickets
       const worklogJql = encodeURIComponent(
-        `worklogAuthor = "${user.accountId}" AND statusCategory = Done${timeFilter}`
+        `worklogAuthor = "${user.accountId}" AND statusCategory = Done${sprintJql}${timeFilter}`
       )
 
       const worklogSearch: any = await jiraFetch(
@@ -1996,15 +2518,17 @@ app.get('/compare', async (c) => {
       const worklogIssues = worklogSearch.issues || []
 
       // Fetch closed tickets
-      let closedTimeFilter = ''
-      if (timeRange === 'custom' && customStart && customEnd) {
-        closedTimeFilter = ` AND updated >= "${customStart}" AND updated <= "${customEnd}"`
+      let closedExtraFilter = ''
+      if (currentSprintId) {
+        closedExtraFilter = ` AND sprint = ${currentSprintId}`
+      } else if (timeRange === 'custom' && customStart && customEnd) {
+        closedExtraFilter = ` AND updated >= "${customStart}" AND updated <= "${customEnd}"`
       } else if (timeRange !== 'all') {
-        closedTimeFilter = ` AND updated >= ${timeRange}`
+        closedExtraFilter = ` AND updated >= ${timeRange}`
       }
 
       const closedJql = encodeURIComponent(
-        `assignee was "${user.accountId}" AND statusCategory = Done${closedTimeFilter}`
+        `assignee was "${user.accountId}" AND statusCategory = Done${closedExtraFilter}`
       )
 
       const closedSearch: any = await jiraFetch(
@@ -2126,7 +2650,30 @@ app.get('/compare', async (c) => {
         ? +(worklogLeadTimes.reduce((sum: number, d: number) => sum + d, 0) / worklogLeadTimes.length).toFixed(1)
         : 0
 
-      results.push({
+      // Carried-over story points: detect via changelog Sprint field changes
+      let carriedOverStoryPoints = 0
+      if (currentSprintId) {
+        const allIssuesForCarry = [...worklogIssues, ...closedIssues.filter((i: any) => !worklogKeys.has(i.key))]
+        for (const issue of allIssuesForCarry) {
+          let isCarried = false
+          for (const history of (issue.changelog?.histories || [])) {
+            for (const item of (history.items || [])) {
+              if (item.field === 'Sprint') {
+                const toIds = (item.to || '').split(',').map((s: string) => s.trim()).filter(Boolean)
+                const fromIds = (item.from || '').split(',').map((s: string) => s.trim()).filter(Boolean)
+                if (toIds.includes(String(currentSprintId)) && fromIds.some((id: string) => id !== String(currentSprintId))) {
+                  isCarried = true
+                }
+              }
+            }
+          }
+          if (isCarried) {
+            carriedOverStoryPoints += issue.fields?.[storyPointsFieldId] || 0
+          }
+        }
+      }
+
+      groupResults.push({
         email,
         displayName: user.displayName,
         totalTickets: allIssues.length,
@@ -2135,6 +2682,7 @@ app.get('/compare', async (c) => {
         avgCycleTimeDays,
         avgLeadTimeDays,
         totalStoryPoints,
+        carriedOverStoryPoints,
         // Worklog-only
         worklogTotalTickets: worklogIssues.length,
         worklogTotalHours: +worklogTotalHours.toFixed(2),
@@ -2143,33 +2691,79 @@ app.get('/compare', async (c) => {
         worklogAvgLeadTimeDays,
         worklogTotalStoryPoints
       })
-    }
+    } // end email loop
 
-    // Sort by total hours (highest first)
-    results.sort((a, b) => b.totalHours - a.totalHours)
+    // Sort group by total hours
+    groupResults.sort((a, b) => b.totalHours - a.totalHours)
 
-    // Calculate date range for display
-    let dateRange = { startDate: null as string | null, endDate: null as string | null }
-    if (timeRange === 'custom' && customStart && customEnd) {
-      dateRange.startDate = new Date(customStart).toISOString()
-      dateRange.endDate = new Date(customEnd).toISOString()
+    // Date range for this sprint/group
+    let groupDateRange = { startDate: null as string | null, endDate: null as string | null }
+    if (currentSprintId && sprintStartDate) {
+      groupDateRange.startDate = new Date(sprintStartDate).toISOString()
+      groupDateRange.endDate = sprintEndDate ? new Date(sprintEndDate).toISOString() : null
+    } else if (timeRange === 'custom' && customStart && customEnd) {
+      groupDateRange.startDate = new Date(customStart).toISOString()
+      groupDateRange.endDate = new Date(customEnd).toISOString()
     } else if (timeRange === '-7d') {
       const now = new Date()
-      dateRange.endDate = now.toISOString()
-      dateRange.startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
+      groupDateRange.endDate = now.toISOString()
+      groupDateRange.startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
     } else if (timeRange === '-30d') {
       const now = new Date()
-      dateRange.endDate = now.toISOString()
-      dateRange.startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
+      groupDateRange.endDate = now.toISOString()
+      groupDateRange.startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
     } else if (timeRange === '-365d') {
       const now = new Date()
-      dateRange.endDate = now.toISOString()
-      dateRange.startDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000).toISOString()
+      groupDateRange.endDate = now.toISOString()
+      groupDateRange.startDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000).toISOString()
+    }
+
+    sprintGroups.push({
+      sprintId: currentSprintId,
+      sprintName: currentSprintId ? sprintDetailsMap[currentSprintId]?.name || '' : '',
+      dateRange: groupDateRange,
+      rankings: groupResults
+    })
+    } // end sprint loop
+
+    // For backwards compat, also expose flat rankings from first group
+    const firstGroup = sprintGroups[0] || { rankings: [], dateRange: { startDate: null, endDate: null } }
+
+    return c.json({
+      rankings: firstGroup.rankings,
+      dateRange: firstGroup.dateRange,
+      sprintGroups,
+      sprintNames
+    })
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500)
+  }
+})
+
+app.get('/sprints', async (c) => {
+  try {
+    const boardId = (c.env as any).JIRA_BOARD_ID;
+    if (!boardId) {
+      return c.json({ error: 'JIRA_BOARD_ID not configured in environment' }, 500);
+    }
+
+    const allSprints = []
+    let startAt = 0
+    let isLast = false
+
+    while (!isLast) {
+      const sprints: any = await jiraFetch(
+        c.env,
+        `/rest/agile/1.0/board/${boardId}/sprint?state=active,closed&startAt=${startAt}&maxResults=50`
+      )
+
+      allSprints.push(...(sprints.values || []))
+      isLast = sprints.isLast !== false
+      startAt += 50
     }
 
     return c.json({
-      rankings: results,
-      dateRange
+      sprints: allSprints
     })
   } catch (err: any) {
     return c.json({ error: err.message }, 500)
