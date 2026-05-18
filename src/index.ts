@@ -804,8 +804,8 @@ app.get('/', (c) => {
     <div class="search-box">
       <div class="error" id="error"></div>
       <div class="mode-toggle">
-        <button class="mode-btn active" id="singleMode">Single Engineer</button>
-        <button class="mode-btn" id="compareMode">Compare Engineers</button>
+        <button class="mode-btn active" id="singleMode">Single Associate</button>
+        <button class="mode-btn" id="compareMode">Group Associates</button>
       </div>
       <form class="search-form" id="searchForm">
         <div id="singleEngineerForm">
@@ -830,7 +830,7 @@ app.get('/', (c) => {
                 type="email" 
                 class="engineer-email"
                 autocomplete="new-password"
-                placeholder="Engineer 1 email" 
+                placeholder="Associate email 1" 
               >
             </div>
             <div class="engineer-input-wrapper">
@@ -838,11 +838,11 @@ app.get('/', (c) => {
                 type="email" 
                 class="engineer-email"
                 autocomplete="new-password"
-                placeholder="Engineer 2 email" 
+                placeholder="Associate email 2" 
               >
             </div>
           </div>
-          <button type="button" id="addEngineerBtn" style="padding: 0.5rem 1rem; background: #667eea; color: white; border: none; border-radius: 6px; cursor: pointer;">+ Add Engineer</button>
+          <button type="button" id="addEngineerBtn" style="padding: 0.5rem 1rem; background: #667eea; color: white; border: none; border-radius: 6px; cursor: pointer;">+ Add Associate</button>
         </div>
         <div class="date-filters">
           <select id="timeRangeType">
@@ -1042,7 +1042,7 @@ app.get('/', (c) => {
         comparisonHtml += '<button type="button" class="pill-btn" data-filter="all">All <span class="info-icon">?</span><div class="filter-tooltip">Includes worklog tickets and closed tickets where the user was assigned at any point.</div></button>';
         comparisonHtml += '<button type="button" class="pill-btn active" data-filter="worklog">Work Log <span class="info-icon">?</span><div class="filter-tooltip">Tickets where the user logged work.</div></button>';
         comparisonHtml += '</div>';
-        comparisonHtml += '<h2>Engineer Comparison' + (group.sprintName ? ': ' + group.sprintName : '') + '</h2>';
+        comparisonHtml += '<h2>Group Search' + (group.sprintName ? ': ' + group.sprintName : '') + '</h2>';
         comparisonHtml += '<p class="date-range">' + formatDateRange(group.dateRange) + '</p>';
         comparisonHtml += '<table class="comparison-table"><thead><tr><th>Rank</th><th>Engineer</th><th>Total Tickets <span class="info-icon">?</span><div class="header-tooltip">Total tickets where the engineer was assigned at any point (All) or logged work (Work Log)</div></th><th>Total Story Points <span class="info-icon">?</span><div class="header-tooltip">Sum of story points from all tickets shown</div></th><th>Carried Over SP <span class="info-icon">?</span><div class="header-tooltip">Story points on tickets closed in this sprint that were originally from a previous sprint.</div></th><th>Total Hours <span class="info-icon">?</span><div class="header-tooltip">Total hours logged by this engineer across all tickets shown</div></th><th>Avg Hours/Ticket <span class="info-icon">?</span><div class="header-tooltip">Average hours logged per ticket. Total hours ÷ total tickets</div></th><th>Avg Cycle Time (days) <span class="info-icon">?</span><div class="header-tooltip">Average days from In Progress to Done. Measures active development time</div></th><th>Avg Lead Time (days) <span class="info-icon">?</span><div class="header-tooltip">Average days from ticket creation to completion. Includes backlog wait time</div></th></tr></thead><tbody id="' + tableId + '"></tbody></table></div>';
 
@@ -1593,7 +1593,7 @@ app.get('/', (c) => {
       engineerCount++;
       const wrapper = document.createElement('div');
       wrapper.className = 'engineer-input-wrapper';
-      wrapper.innerHTML = '<input type="email" class="engineer-email" autocomplete="new-password" placeholder="Engineer ' + engineerCount + ' email"><button type="button" class="delete-engineer-btn">×</button>';
+      wrapper.innerHTML = '<input type="email" class="engineer-email" autocomplete="new-password" placeholder="Associate email ' + engineerCount + '"><button type="button" class="delete-engineer-btn">×</button>';
       engineerInputs.appendChild(wrapper);
       wireEmailDropdownForInput(wrapper.querySelector('.engineer-email'));
 
@@ -1713,7 +1713,7 @@ app.get('/', (c) => {
           displayComparison(data);
           
           // Update URL with search parameters (no encoding)
-          let urlParams = '?search=compare&email=' + emails.join(',');
+          let urlParams = '?search=group&email=' + emails.join(',');
           if (timeRangeType === 'days') {
             if (timeRange !== '-30d') {
               urlParams += '&time=' + timeRange;
@@ -1895,7 +1895,7 @@ app.get('/', (c) => {
         if (searchMode === 'single') {
           emailInput.value = emails[0];
           searchForm.dispatchEvent(new Event('submit'));
-        } else if (searchMode === 'compare') {
+        } else if (searchMode === 'group' || searchMode === 'total' || searchMode === 'compare') {
           // Switch to compare mode
           compareModeBtn.click();
 
