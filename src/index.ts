@@ -1487,7 +1487,7 @@ app.get('/', (c) => {
         filteredTickets = allTicketsData.filter(t => t.type === 'worklog');
       }
 
-      const jiraBaseUrl = 'https://marriottcloud.atlassian.net/browse/'
+      const jiraBaseUrl = '${c.env.JIRA_BASE_URL}/browse/'
       ticketsTableBody.innerHTML = filteredTickets.map(ticket => {
         const workersHtml = ticket.allWorkers && ticket.allWorkers.length > 0
           ? ticket.allWorkers.map(w => '<div class="worker"><span>' + w.displayName + '</span><span>' + w.hours + 'h</span></div>').join('')
