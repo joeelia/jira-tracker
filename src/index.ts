@@ -29,7 +29,7 @@ async function jiraFetch(env: Env, path: string) {
 }
 
 async function findUserByEmail(env: Env, email: string) {
-  const data = await jiraFetch(
+  const data: any = await jiraFetch(
     env,
     `/rest/api/3/user/search?query=${encodeURIComponent(email)}`
   )
@@ -38,6 +38,54 @@ async function findUserByEmail(env: Env, email: string) {
   console.log(`Array length:`, Array.isArray(data) ? data.length : 'not an array')
 
   return data?.[0]
+}
+
+function getStatusTransitionDates(histories: any[]) {
+  const sortedHistories = [...(histories || [])].sort(
+    (a: any, b: any) => new Date(a.created).getTime() - new Date(b.created).getTime()
+  )
+
+  let firstInProgress: string | null = null
+  let leftInProgress: string | null = null
+  let closedDate: string | null = null
+
+  for (const history of sortedHistories) {
+    for (const item of history.items || []) {
+      if (item.field !== 'status') continue
+
+      if (item.toString === 'In Progress' && !firstInProgress) {
+        firstInProgress = history.created
+      } else if (
+        firstInProgress &&
+        !leftInProgress &&
+        item.fromString === 'In Progress' &&
+        item.toString !== 'In Progress'
+      ) {
+        leftInProgress = history.created
+      }
+
+      if (['Done', 'Closed'].includes(item.toString)) {
+        closedDate = history.created
+      }
+    }
+  }
+
+  return { firstInProgress, leftInProgress, closedDate }
+}
+
+function calculateAverageDurationDays(items: any[], startField: string, endField: string, precision = 1) {
+  const durations = items
+    .filter((r: any) => r[startField] && r[endField])
+    .map((r: any) => {
+      const start = new Date(r[startField]).getTime()
+      const end = new Date(r[endField]).getTime()
+      return (end - start) / (1000 * 60 * 60 * 24)
+    })
+    .filter((days: number) => days >= 0)
+
+  return durations.length > 0
+    ? +(durations.reduce((sum: number, d: number) => sum + d, 0) / durations.length).toFixed(precision)
+    : 0
 }
 
 app.get('/', (c) => {
@@ -666,6 +714,8 @@ app.get('/', (c) => {
       padding: 2rem;
       border-radius: 12px;
       box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+      min-width: 100%;
+      width: max-content;
     }
 
     .tickets-section h2 {
@@ -673,8 +723,15 @@ app.get('/', (c) => {
       margin-bottom: 1.5rem;
     }
 
+    .tickets-table-wrapper {
+      width: 100%;
+      overflow: visible;
+      padding-bottom: 0.25rem;
+    }
+
     .tickets-table {
       width: 100%;
+      min-width: 1180px;
       border-collapse: collapse;
     }
 
@@ -910,6 +967,12 @@ app.get('/', (c) => {
         </div>
         <div class="metric-card">
           <div class="info-icon">?</div>
+          <div class="info-tooltip">Average days from when a ticket first moves to "In Progress" until its next status change. Measures time spent in active progress before moving on.</div>
+          <div class="value" id="avgInProgressTime">0</div>
+          <div class="label">Avg In Progress Time</div>
+        </div>
+        <div class="metric-card">
+          <div class="info-icon">?</div>
           <div class="info-tooltip">Average days from ticket creation to completion. Measures total time including backlog wait time.</div>
           <div class="value" id="avgLeadTime">0</div>
           <div class="label">Avg Lead Time (days)</div>
@@ -950,23 +1013,27 @@ app.get('/', (c) => {
           <button type="button" class="pill-btn active" data-filter="worklog">Work Log <span class="info-icon">?</span><div class="filter-tooltip">Tickets where the user logged work.</div></button>
         </div>
         <h2>Tickets</h2>
-        <table class="tickets-table">
-          <thead>
-            <tr>
-              <th>Key</th>
-              <th>Title</th>
-              <th>Story Points</th>
-              <th>Hours</th>
-              <th>Comments</th>
-              <th>Created</th>
-              <th>First In Progress</th>
-              <th>Closed</th>
-              <th>Sprints <span class="info-icon">?</span><div class="header-tooltip">Number of sprints this ticket appeared in. A value &gt; 1 means it was carried over from a prior sprint. Hover the number to see which sprints.</div></th>
-            </tr>
-          </thead>
-          <tbody id="ticketsTableBody">
-          </tbody>
-        </table>
+        <div class="tickets-table-wrapper">
+          <table class="tickets-table">
+            <thead>
+              <tr>
+                <th>Key</th>
+                <th>Title</th>
+                <th>Story Points</th>
+                <th>Hours</th>
+                <th>Comments</th>
+                <th>Created</th>
+                <th>First In Progress</th>
+                <th>Left In Progress</th>
+                <th>In Progress Time</th>
+                <th>Closed</th>
+                <th>Sprints <span class="info-icon">?</span><div class="header-tooltip">Number of sprints this ticket appeared in. A value &gt; 1 means it was carried over from a prior sprint. Hover the number to see which sprints.</div></th>
+              </tr>
+            </thead>
+            <tbody id="ticketsTableBody">
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
 
@@ -1000,6 +1067,17 @@ app.get('/', (c) => {
     function formatDateRange(dateRange) {
       if (!dateRange.startDate || !dateRange.endDate) return '';
       return formatDate(dateRange.startDate) + ' - ' + formatDate(dateRange.endDate);
+    }
+
+    function formatDurationDays(days) {
+      if (days == null) return '-';
+      const numericDays = Number(days);
+      if (!Number.isFinite(numericDays)) return '-';
+      if (numericDays < 1) {
+        const hours = numericDays * 24;
+        return (hours < 10 ? Math.round(hours * 10) / 10 : Math.round(hours)) + 'h';
+      }
+      return (Math.round(numericDays * 10) / 10) + 'd';
     }
 
     function displayComparison(data) {
@@ -1044,7 +1122,7 @@ app.get('/', (c) => {
         comparisonHtml += '</div>';
         comparisonHtml += '<h2>Group Search' + (group.sprintName ? ': ' + group.sprintName : '') + '</h2>';
         comparisonHtml += '<p class="date-range">' + formatDateRange(group.dateRange) + '</p>';
-        comparisonHtml += '<table class="comparison-table"><thead><tr><th>Rank</th><th>Engineer</th><th>Total Tickets <span class="info-icon">?</span><div class="header-tooltip">Total tickets where the engineer was assigned at any point (All) or logged work (Work Log)</div></th><th>Total Story Points <span class="info-icon">?</span><div class="header-tooltip">Sum of story points from all tickets shown</div></th><th>Carried Over SP <span class="info-icon">?</span><div class="header-tooltip">Story points on tickets closed in this sprint that were originally from a previous sprint.</div></th><th>Total Hours <span class="info-icon">?</span><div class="header-tooltip">Total hours logged by this engineer across all tickets shown</div></th><th>Avg Hours/Ticket <span class="info-icon">?</span><div class="header-tooltip">Average hours logged per ticket. Total hours ÷ total tickets</div></th><th>Avg Cycle Time (days) <span class="info-icon">?</span><div class="header-tooltip">Average days from In Progress to Done. Measures active development time</div></th><th>Avg Lead Time (days) <span class="info-icon">?</span><div class="header-tooltip">Average days from ticket creation to completion. Includes backlog wait time</div></th></tr></thead><tbody id="' + tableId + '"></tbody></table></div>';
+        comparisonHtml += '<table class="comparison-table"><thead><tr><th>Rank</th><th>Engineer</th><th>Total Tickets <span class="info-icon">?</span><div class="header-tooltip">Total tickets where the engineer was assigned at any point (All) or logged work (Work Log)</div></th><th>Total Story Points <span class="info-icon">?</span><div class="header-tooltip">Sum of story points from all tickets shown</div></th><th>Carried Over SP <span class="info-icon">?</span><div class="header-tooltip">Story points on tickets closed in this sprint that were originally from a previous sprint.</div></th><th>Total Hours <span class="info-icon">?</span><div class="header-tooltip">Total hours logged by this engineer across all tickets shown</div></th><th>Avg Hours/Ticket <span class="info-icon">?</span><div class="header-tooltip">Average hours logged per ticket. Total hours ÷ total tickets</div></th><th>Avg Cycle Time (days) <span class="info-icon">?</span><div class="header-tooltip">Average days from In Progress to Done. Measures active development time</div></th><th>Avg In Progress Time <span class="info-icon">?</span><div class="header-tooltip">Average time from first In Progress to the next status change away from In Progress</div></th><th>Avg Lead Time (days) <span class="info-icon">?</span><div class="header-tooltip">Average days from ticket creation to completion. Includes backlog wait time</div></th></tr></thead><tbody id="' + tableId + '"></tbody></table></div>';
 
         results.insertAdjacentHTML('beforeend', comparisonHtml);
 
@@ -1080,6 +1158,7 @@ app.get('/', (c) => {
         const hours = isWorklog ? (rank.worklogTotalHours || 0) : rank.totalHours;
         const avgHours = isWorklog ? (rank.worklogAvgHoursPerTicket || 0) : rank.avgHoursPerTicket;
         const cycleTime = isWorklog ? (rank.worklogAvgCycleTimeDays || 0) : rank.avgCycleTimeDays;
+        const inProgressTime = isWorklog ? (rank.worklogAvgInProgressTimeDays || 0) : rank.avgInProgressTimeDays;
         const leadTime = isWorklog ? (rank.worklogAvgLeadTimeDays || 0) : rank.avgLeadTimeDays;
 
         let singleUrl = '?search=single&email=' + rank.email;
@@ -1095,7 +1174,7 @@ app.get('/', (c) => {
         const carriedOverCell = carriedOver > 0
           ? '<td style="color:#e53e3e;font-weight:bold">' + carriedOver + '</td>'
           : '<td>' + carriedOver + '</td>';
-        html += '<tr><td>' + (index + 1) + '</td><td>' + rank.displayName + ' <a href="' + singleUrl + '" class="ticket-link" style="font-size: 0.75rem;">(view)</a></td><td>' + tickets + '</td><td>' + (storyPoints || 0) + '</td>' + carriedOverCell + '<td>' + hours + '</td><td>' + avgHours + '</td><td>' + cycleTime + '</td><td>' + leadTime + '</td></tr>';
+        html += '<tr><td>' + (index + 1) + '</td><td>' + rank.displayName + ' <a href="' + singleUrl + '" class="ticket-link" style="font-size: 0.75rem;">(view)</a></td><td>' + tickets + '</td><td>' + (storyPoints || 0) + '</td>' + carriedOverCell + '<td>' + hours + '</td><td>' + avgHours + '</td><td>' + cycleTime + '</td><td>' + formatDurationDays(inProgressTime) + '</td><td>' + leadTime + '</td></tr>';
       });
       compareBody.innerHTML = html;
     }
@@ -1500,7 +1579,7 @@ app.get('/', (c) => {
         const sprintCell = ticket.sprintCount > 1
           ? '<td style="text-align:center; position:relative;"><span class="hours-tooltip" style="cursor:default;"><span style="font-weight:bold;color:#e53e3e">' + sprintCountVal + '</span><div class="tooltip-content" style="min-width:200px;text-align:left;">' + sprintNamesHtml + '</div></span></td>'
           : '<td style="text-align:center;">' + (sprintNamesHtml ? '<span class="hours-tooltip" style="cursor:default;">' + sprintCountVal + '<div class="tooltip-content" style="min-width:200px;text-align:left;">' + sprintNamesHtml + '</div></span>' : sprintCountVal) + '</td>';
-        return '<tr><td><a href="' + jiraBaseUrl + ticket.key + '" target="_blank" class="ticket-link">' + ticket.key + '</a></td><td class="ticket-summary" title="' + ticket.summary + '">' + ticket.summary + '</td><td class="ticket-points">' + (ticket.storyPoints || '-') + '</td><td class="hours-tooltip"><span class="ticket-hours">' + ticket.userHours + 'h</span><div class="tooltip-content">' + workersHtml + '<div class="note">Hours shown above are for ' + userName.textContent + ' only</div></div></td><td>' + ticket.comments + '</td><td>' + formatDate(ticket.created) + '</td><td>' + (ticket.firstInProgress ? formatDate(ticket.firstInProgress) : '-') + '</td><td>' + (ticket.closedDate ? formatDate(ticket.closedDate) : '-') + '</td>' + sprintCell + '</tr>'
+        return '<tr><td><a href="' + jiraBaseUrl + ticket.key + '" target="_blank" class="ticket-link">' + ticket.key + '</a></td><td class="ticket-summary" title="' + ticket.summary + '">' + ticket.summary + '</td><td class="ticket-points">' + (ticket.storyPoints || '-') + '</td><td class="hours-tooltip"><span class="ticket-hours">' + ticket.userHours + 'h</span><div class="tooltip-content">' + workersHtml + '<div class="note">Hours shown above are for ' + userName.textContent + ' only</div></div></td><td>' + ticket.comments + '</td><td>' + formatDate(ticket.created) + '</td><td>' + (ticket.firstInProgress ? formatDate(ticket.firstInProgress) : '-') + '</td><td>' + (ticket.leftInProgress ? formatDate(ticket.leftInProgress) : '-') + '</td><td>' + formatDurationDays(ticket.inProgressTimeDays) + '</td><td>' + (ticket.closedDate ? formatDate(ticket.closedDate) : '-') + '</td>' + sprintCell + '</tr>'
       }).join('');
 
       // Update metrics based on filter
@@ -1573,6 +1652,7 @@ app.get('/', (c) => {
       totalHours.textContent = isWorklog ? (d.worklogTotalHours || 0) : d.totalHours;
       avgHoursPerTicketEl.textContent = isWorklog ? (d.worklogAvgHoursPerTicket || 0) : d.avgHoursPerTicket;
       avgCycleTimeEl.textContent = isWorklog ? (d.worklogAvgCycleTimeDays || 0) : d.avgCycleTimeDays;
+      avgInProgressTimeEl.textContent = formatDurationDays(isWorklog ? (d.worklogAvgInProgressTimeDays || 0) : d.avgInProgressTimeDays);
       avgLeadTimeEl.textContent = isWorklog ? (d.worklogAvgLeadTimeDays || 0) : d.avgLeadTimeDays;
       totalStoryPointsEl.textContent = isWorklog ? (d.worklogTotalStoryPoints || 0) : d.totalStoryPoints;
       avgHoursPerStoryPointEl.textContent = d.avgHoursPerStoryPoint;
@@ -1647,6 +1727,7 @@ app.get('/', (c) => {
     const totalHours = document.getElementById('totalHours');
     const avgHoursPerTicketEl = document.getElementById('avgHoursPerTicket');
     const avgCycleTimeEl = document.getElementById('avgCycleTime');
+    const avgInProgressTimeEl = document.getElementById('avgInProgressTime');
     const avgLeadTimeEl = document.getElementById('avgLeadTime');
     const ticketsTableBody = document.getElementById('ticketsTableBody');
 
@@ -2160,31 +2241,15 @@ app.get('/metrics', async (c) => {
 
       const comments = issue.fields?.comment?.total || 0
 
-      let firstInProgress = null
-      let closedDate = null
       let carriedOver = false
       const seenSprintIds = new Set<string>()
       const sprintIdNameMap: Record<string, string> = {}
 
       const histories = issue.changelog?.histories || []
+      const { firstInProgress, leftInProgress, closedDate } = getStatusTransitionDates(histories)
 
       for (const history of histories) {
         for (const item of history.items || []) {
-          if (
-            item.field === 'status' &&
-            item.toString === 'In Progress' &&
-            !firstInProgress
-          ) {
-            firstInProgress = history.created
-          }
-
-          if (
-            item.field === 'status' &&
-            ['Done', 'Closed'].includes(item.toString)
-          ) {
-            closedDate = history.created
-          }
-
           // Track all sprint IDs+names this ticket has ever been in
           if (item.field === 'Sprint') {
             const toIds = (item.to || '').split(',').map((s: string) => s.trim()).filter(Boolean)
@@ -2223,6 +2288,10 @@ app.get('/metrics', async (c) => {
         comments,
         created: issue.fields?.created || null,
         firstInProgress,
+        leftInProgress,
+        inProgressTimeDays: firstInProgress && leftInProgress
+          ? +((new Date(leftInProgress).getTime() - new Date(firstInProgress).getTime()) / (1000 * 60 * 60 * 24)).toFixed(2)
+          : null,
         closedDate,
         userHours: +(totalSeconds / 3600).toFixed(2),
         allWorkers: workersList,
@@ -2243,31 +2312,15 @@ app.get('/metrics', async (c) => {
 
       const comments = issue.fields?.comment?.total || 0
 
-      let firstInProgress = null
-      let closedDate = null
       let carriedOver = false
       const seenSprintIds = new Set<string>()
       const sprintIdNameMap: Record<string, string> = {}
 
       const histories = issue.changelog?.histories || []
+      const { firstInProgress, leftInProgress, closedDate } = getStatusTransitionDates(histories)
 
       for (const history of histories) {
         for (const item of history.items || []) {
-          if (
-            item.field === 'status' &&
-            item.toString === 'In Progress' &&
-            !firstInProgress
-          ) {
-            firstInProgress = history.created
-          }
-
-          if (
-            item.field === 'status' &&
-            ['Done', 'Closed'].includes(item.toString)
-          ) {
-            closedDate = history.created
-          }
-
           if (item.field === 'Sprint') {
             const toIds = (item.to || '').split(',').map((s: string) => s.trim()).filter(Boolean)
             const fromIds = (item.from || '').split(',').map((s: string) => s.trim()).filter(Boolean)
@@ -2303,6 +2356,10 @@ app.get('/metrics', async (c) => {
         comments,
         created: issue.fields?.created || null,
         firstInProgress,
+        leftInProgress,
+        inProgressTimeDays: firstInProgress && leftInProgress
+          ? +((new Date(leftInProgress).getTime() - new Date(firstInProgress).getTime()) / (1000 * 60 * 60 * 24)).toFixed(2)
+          : null,
         closedDate,
         userHours: 0,
         allWorkers: [],
@@ -2322,16 +2379,8 @@ app.get('/metrics', async (c) => {
     const avgHoursPerTicket = totalTickets > 0 ? +(totalHours / totalTickets).toFixed(2) : 0
 
     // Avg cycle time (In Progress -> Done) in days - from all results
-    const cycleTimes = allResults
-      .filter((r: any) => r.firstInProgress && r.closedDate)
-      .map((r: any) => {
-        const start = new Date(r.firstInProgress!).getTime()
-        const end = new Date(r.closedDate!).getTime()
-        return (end - start) / (1000 * 60 * 60 * 24)
-      })
-    const avgCycleTimeDays = cycleTimes.length > 0
-      ? +(cycleTimes.reduce((sum: number, d: number) => sum + d, 0) / cycleTimes.length).toFixed(1)
-      : 0
+    const avgCycleTimeDays = calculateAverageDurationDays(allResults, 'firstInProgress', 'closedDate')
+    const avgInProgressTimeDays = calculateAverageDurationDays(allResults, 'firstInProgress', 'leftInProgress', 2)
 
     // Avg lead time (Created -> Done) in days - from all results
     const leadTimes = allResults
@@ -2355,16 +2404,8 @@ app.get('/metrics', async (c) => {
     const worklogTotalHours = +worklogResults.reduce((sum: number, r: any) => sum + r.userHours, 0).toFixed(2)
     const worklogAvgHoursPerTicket = worklogTotalTickets > 0 ? +(worklogTotalHours / worklogTotalTickets).toFixed(2) : 0
 
-    const worklogCycleTimes = worklogResults
-      .filter((r: any) => r.firstInProgress && r.closedDate)
-      .map((r: any) => {
-        const start = new Date(r.firstInProgress!).getTime()
-        const end = new Date(r.closedDate!).getTime()
-        return (end - start) / (1000 * 60 * 60 * 24)
-      })
-    const worklogAvgCycleTimeDays = worklogCycleTimes.length > 0
-      ? +(worklogCycleTimes.reduce((sum: number, d: number) => sum + d, 0) / worklogCycleTimes.length).toFixed(1)
-      : 0
+    const worklogAvgCycleTimeDays = calculateAverageDurationDays(worklogResults, 'firstInProgress', 'closedDate')
+    const worklogAvgInProgressTimeDays = calculateAverageDurationDays(worklogResults, 'firstInProgress', 'leftInProgress', 2)
 
     const worklogLeadTimes = worklogResults
       .filter((r: any) => r.created && r.closedDate)
@@ -2427,6 +2468,7 @@ app.get('/metrics', async (c) => {
       totalHours,
       avgHoursPerTicket,
       avgCycleTimeDays,
+      avgInProgressTimeDays,
       avgLeadTimeDays,
       dateRange,
       totalStoryPoints,
@@ -2436,6 +2478,7 @@ app.get('/metrics', async (c) => {
       worklogTotalHours,
       worklogAvgHoursPerTicket,
       worklogAvgCycleTimeDays,
+      worklogAvgInProgressTimeDays,
       worklogAvgLeadTimeDays,
       worklogTotalStoryPoints,
       carriedOverStoryPoints,
@@ -2568,31 +2611,11 @@ app.get('/compare', async (c) => {
           worklogTotalSeconds += seconds
         }
 
-        // Calculate cycle time and lead time from changelog
-        let firstInProgress = null
-        let closedDate = null
-
-        const histories = issue.changelog?.histories || []
-        for (const history of histories) {
-          for (const item of history.items || []) {
-            if (
-              item.field === 'status' &&
-              item.toString === 'In Progress' &&
-              !firstInProgress
-            ) {
-              firstInProgress = history.created
-            }
-
-            if (
-              item.field === 'status' &&
-              ['Done', 'Closed'].includes(item.toString)
-            ) {
-              closedDate = history.created
-            }
-          }
-        }
+        // Calculate status timing from changelog
+        const { firstInProgress, leftInProgress, closedDate } = getStatusTransitionDates(issue.changelog?.histories || [])
 
         issue.firstInProgress = firstInProgress
+        issue.leftInProgress = leftInProgress
         issue.closedDate = closedDate
         issue.created = issue.fields?.created
       }
@@ -2604,28 +2627,12 @@ app.get('/compare', async (c) => {
       const worklogTotalHours = +(worklogTotalSeconds / 3600).toFixed(2)
       const worklogAvgHoursPerTicket = worklogIssues.length > 0 ? +(worklogTotalHours / worklogIssues.length).toFixed(2) : 0
 
-      const cycleTimes = allIssues
-        .filter((r: any) => r.firstInProgress && r.closedDate)
-        .map((r: any) => {
-          const start = new Date(r.firstInProgress!).getTime()
-          const end = new Date(r.closedDate!).getTime()
-          return (end - start) / (1000 * 60 * 60 * 24)
-        })
-      const avgCycleTimeDays = cycleTimes.length > 0
-        ? +(cycleTimes.reduce((sum: number, d: number) => sum + d, 0) / cycleTimes.length).toFixed(1)
-        : 0
+      const avgCycleTimeDays = calculateAverageDurationDays(allIssues, 'firstInProgress', 'closedDate')
+      const avgInProgressTimeDays = calculateAverageDurationDays(allIssues, 'firstInProgress', 'leftInProgress', 2)
 
       // Worklog-only cycle time
-      const worklogCycleTimes = worklogIssues
-        .filter((r: any) => r.firstInProgress && r.closedDate)
-        .map((r: any) => {
-          const start = new Date(r.firstInProgress!).getTime()
-          const end = new Date(r.closedDate!).getTime()
-          return (end - start) / (1000 * 60 * 60 * 24)
-        })
-      const worklogAvgCycleTimeDays = worklogCycleTimes.length > 0
-        ? +(worklogCycleTimes.reduce((sum: number, d: number) => sum + d, 0) / worklogCycleTimes.length).toFixed(1)
-        : 0
+      const worklogAvgCycleTimeDays = calculateAverageDurationDays(worklogIssues, 'firstInProgress', 'closedDate')
+      const worklogAvgInProgressTimeDays = calculateAverageDurationDays(worklogIssues, 'firstInProgress', 'leftInProgress', 2)
 
       const leadTimes = allIssues
         .filter((r: any) => r.created && r.closedDate)
@@ -2680,6 +2687,7 @@ app.get('/compare', async (c) => {
         totalHours: +totalHours.toFixed(2),
         avgHoursPerTicket,
         avgCycleTimeDays,
+        avgInProgressTimeDays,
         avgLeadTimeDays,
         totalStoryPoints,
         carriedOverStoryPoints,
@@ -2688,6 +2696,7 @@ app.get('/compare', async (c) => {
         worklogTotalHours: +worklogTotalHours.toFixed(2),
         worklogAvgHoursPerTicket,
         worklogAvgCycleTimeDays,
+        worklogAvgInProgressTimeDays,
         worklogAvgLeadTimeDays,
         worklogTotalStoryPoints
       })
