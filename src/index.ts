@@ -1,9 +1,11 @@
 import { Hono } from 'hono'
+import { registerMcpRoutes } from './mcp'
 
 type Env = {
   JIRA_BASE_URL: string
   JIRA_EMAIL: string
   JIRA_API_TOKEN: string
+  JIRA_BOARD_ID?: string
 }
 
 const app = new Hono<{ Bindings: Env }>()
@@ -87,6 +89,249 @@ function calculateAverageDurationDays(items: any[], startField: string, endField
     ? +(durations.reduce((sum: number, d: number) => sum + d, 0) / durations.length).toFixed(precision)
     : 0
 }
+
+function getStoryPointsFieldId(allFields: any[]) {
+  const storyPointsField = allFields.find((f: any) => 
+    f.name?.toLowerCase().includes('story point') || 
+    f.name?.toLowerCase().includes('story points')
+  )
+
+  return storyPointsField?.id || 'customfield_10016'
+}
+
+function toNumber(value: any) {
+  const numberValue = Number(value)
+  return Number.isFinite(numberValue) ? numberValue : 0
+}
+
+function getIssueStoryPoints(issue: any, storyPointsFieldId: string) {
+  const value = issue.fields?.[storyPointsFieldId]
+  if (value === null || value === undefined || value === '') return null
+
+  return toNumber(value)
+}
+
+function getStatusCategoryKey(issue: any) {
+  return issue.fields?.status?.statusCategory?.key || ''
+}
+
+function isDoneIssue(issue: any) {
+  const statusName = (issue.fields?.status?.name || '').toLowerCase()
+  return getStatusCategoryKey(issue) === 'done' || ['done', 'closed'].includes(statusName)
+}
+
+function getIssueStatusName(issue: any) {
+  return issue.fields?.status?.name || 'Unknown'
+}
+
+function isActiveDevelopmentStatus(statusName: string) {
+  const status = statusName.toLowerCase()
+
+  if (status.includes('test') || status.includes('qa') || status.includes('review')) {
+    return false
+  }
+
+  return status === 'in progress' ||
+    status.includes('dev in progress') ||
+    status.includes('development') ||
+    status.includes('implement')
+}
+
+function isTestingOrReviewStatus(statusName: string) {
+  const status = statusName.toLowerCase()
+
+  return status.includes('test') ||
+    status.includes('qa') ||
+    status.includes('uat') ||
+    status.includes('review') ||
+    status.includes('verification') ||
+    status.includes('staging')
+}
+
+function isBlockedStatus(statusName: string) {
+  const status = statusName.toLowerCase()
+  return status.includes('block') || status.includes('hold') || status.includes('impediment')
+}
+
+function getPlanningTicketType(issue: any) {
+  if (isDoneIssue(issue)) return 'done'
+
+  const statusName = getIssueStatusName(issue)
+  if (isBlockedStatus(statusName)) return 'blocked'
+  if (isActiveDevelopmentStatus(statusName)) return 'in-progress'
+  if (isTestingOrReviewStatus(statusName) || getStatusCategoryKey(issue) === 'indeterminate') return 'testing'
+
+  return 'open'
+}
+
+function getClosureContext(issue: any, storyPointsFieldId: string) {
+  const statusName = getIssueStatusName(issue)
+  const type = getPlanningTicketType(issue)
+  const storyPoints = getIssueStoryPoints(issue, storyPointsFieldId)
+
+  if (type === 'done') {
+    return {
+      notClosedReason: 'Already closed.',
+      closeNextStep: 'No closeout action needed.',
+      bandwidthImpact: 'Does not count against active development bandwidth.'
+    }
+  }
+
+  if (type === 'in-progress') {
+    return {
+      notClosedReason: `Still active in ${statusName}.`,
+      closeNextStep: 'Finish development, resolve implementation comments, and move it to testing or review.',
+      bandwidthImpact: 'Counts against active development bandwidth.'
+    }
+  }
+
+  if (type === 'testing') {
+    return {
+      notClosedReason: `Out of active development and currently in ${statusName}.`,
+      closeNextStep: 'Testing, QA, review, or acceptance needs to pass; then transition the ticket to Done.',
+      bandwidthImpact: 'Does not count against active development bandwidth, but still needs follow-up to close.'
+    }
+  }
+
+  if (type === 'blocked') {
+    return {
+      notClosedReason: `Blocked in ${statusName}.`,
+      closeNextStep: 'Resolve the blocker, dependency, or hold reason before development can continue.',
+      bandwidthImpact: 'May not consume active development time until unblocked, but should be escalated.'
+    }
+  }
+
+  return {
+    notClosedReason: `Not started or not actively in development${storyPoints === null ? ', and it has no story point estimate' : ''}.`,
+    closeNextStep: 'Confirm requirements, estimate it if needed, assign ownership, and move it into active development.',
+    bandwidthImpact: 'Does not count against active development bandwidth until it moves to In Progress.'
+  }
+}
+
+function detectSprintCarryover(issue: any, targetSprintIds: string[]) {
+  if (targetSprintIds.length === 0) return false
+
+  const targetIds = new Set(targetSprintIds.map(String))
+  for (const history of issue.changelog?.histories || []) {
+    for (const item of history.items || []) {
+      if (item.field !== 'Sprint') continue
+
+      const toIds = (item.to || '').split(',').map((s: string) => s.trim()).filter(Boolean)
+      const fromIds = (item.from || '').split(',').map((s: string) => s.trim()).filter(Boolean)
+      const movedIntoTarget = toIds.some((id: string) => targetIds.has(id))
+      const cameFromDifferentSprint = fromIds.some((id: string) => !targetIds.has(id))
+
+      if (movedIntoTarget && cameFromDifferentSprint) {
+        return true
+      }
+    }
+  }
+
+  return false
+}
+
+function getPlanningTicket(issue: any, storyPointsFieldId: string, targetSprintIds: string[]) {
+  const statusCategoryKey = getStatusCategoryKey(issue)
+  const type = getPlanningTicketType(issue)
+  const closureContext = getClosureContext(issue, storyPointsFieldId)
+
+  return {
+    key: issue.key,
+    summary: issue.fields?.summary || 'No summary',
+    storyPoints: getIssueStoryPoints(issue, storyPointsFieldId),
+    status: getIssueStatusName(issue),
+    statusCategory: issue.fields?.status?.statusCategory?.name || '',
+    statusCategoryKey,
+    assignee: issue.fields?.assignee?.displayName || '',
+    assigneeAccountId: issue.fields?.assignee?.accountId || '',
+    created: issue.fields?.created || null,
+    updated: issue.fields?.updated || null,
+    type,
+    ...closureContext,
+    carriedOver: detectSprintCarryover(issue, targetSprintIds)
+  }
+}
+
+function sumTicketStoryPoints(tickets: any[]) {
+  return +tickets.reduce((sum: number, ticket: any) => sum + (ticket.storyPoints || 0), 0).toFixed(2)
+}
+
+function getSprintSortTime(sprint: any) {
+  return new Date(sprint.completeDate || sprint.endDate || sprint.startDate || 0).getTime()
+}
+
+function getDateRangeFromSprints(sprints: any[]) {
+  const starts = sprints.map((s: any) => s.startDate).filter(Boolean).sort()
+  const ends = sprints.map((s: any) => s.endDate || s.completeDate).filter(Boolean).sort().reverse()
+
+  return {
+    startDate: starts.length ? new Date(starts[0]).toISOString() : null,
+    endDate: ends.length ? new Date(ends[0]).toISOString() : null
+  }
+}
+
+function pickHistoricalSprints(allSprints: any[], targetSprints: any[], selectedSprintIds: string[], count: number) {
+  const selectedIds = new Set(selectedSprintIds.map(String))
+  const targetStartTimes = targetSprints
+    .map((s: any) => new Date(s.startDate || s.endDate || s.completeDate || 0).getTime())
+    .filter((time: number) => Number.isFinite(time) && time > 0)
+  const earliestTargetStart = targetStartTimes.length ? Math.min(...targetStartTimes) : null
+
+  return allSprints
+    .filter((s: any) => s.state === 'closed')
+    .filter((s: any) => !selectedIds.has(String(s.id)))
+    .filter((s: any) => earliestTargetStart === null || getSprintSortTime(s) < earliestTargetStart)
+    .sort((a: any, b: any) => getSprintSortTime(b) - getSprintSortTime(a))
+    .slice(0, count)
+}
+
+async function jiraSearchIssues(env: Env, jql: string, fields: string, expand?: string) {
+  const issues: any[] = []
+  let nextPageToken: string | undefined
+
+  for (;;) {
+    const params = [
+      `jql=${encodeURIComponent(jql)}`,
+      `fields=${encodeURIComponent(fields)}`,
+      'maxResults=100'
+    ]
+
+    if (expand) params.push(`expand=${encodeURIComponent(expand)}`)
+    if (nextPageToken) params.push(`nextPageToken=${encodeURIComponent(nextPageToken)}`)
+
+    const data: any = await jiraFetch(env, `/rest/api/3/search/jql?${params.join('&')}`)
+    issues.push(...(data.issues || []))
+
+    if (!data.nextPageToken) break
+    nextPageToken = data.nextPageToken
+  }
+
+  return issues
+}
+
+async function fetchBoardSprints(env: Env, state = 'active,future,closed') {
+  if (!env.JIRA_BOARD_ID) {
+    return []
+  }
+
+  const allSprints = []
+  let startAt = 0
+  let isLast = false
+
+  while (!isLast) {
+    const sprints: any = await jiraFetch(
+      env,
+      `/rest/agile/1.0/board/${env.JIRA_BOARD_ID}/sprint?state=${state}&startAt=${startAt}&maxResults=50`
+    )
+
+    allSprints.push(...(sprints.values || []))
+    isLast = sprints.isLast !== false
+    startAt += 50
+  }
+
+  return allSprints
+}
+
 
 app.get('/', (c) => {
   return c.html(`
@@ -558,6 +803,154 @@ app.get('/', (c) => {
       margin-bottom: 1.5rem;
     }
 
+    .planning-view {
+      background: white;
+      padding: 2rem;
+      border-radius: 12px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+      margin-bottom: 2rem;
+    }
+
+    .planning-view h2 {
+      color: #1a202c;
+      margin-bottom: 0.5rem;
+    }
+
+    .planning-view .date-range {
+      color: #667eea;
+      font-size: 0.875rem;
+      font-weight: 500;
+      margin-bottom: 1.5rem;
+    }
+
+    .planning-summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .planning-metric {
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 1rem;
+      background: #f8fafc;
+    }
+
+    .planning-metric .value {
+      color: #1a202c;
+      font-size: 1.75rem;
+      font-weight: 700;
+      margin-bottom: 0.25rem;
+    }
+
+    .planning-metric .label {
+      color: #718096;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .planning-note {
+      color: #4a5568;
+      background: #edf2f7;
+      border-left: 4px solid #667eea;
+      border-radius: 6px;
+      padding: 0.85rem 1rem;
+      margin-bottom: 1.5rem;
+      font-size: 0.875rem;
+      line-height: 1.5;
+    }
+
+    .planning-section-title {
+      color: #1a202c;
+      font-size: 1rem;
+      margin: 1.5rem 0 0.75rem;
+    }
+
+    .planning-table-wrapper {
+      width: 100%;
+      overflow-x: auto;
+    }
+
+    .planning-table {
+      width: 100%;
+      min-width: 980px;
+      border-collapse: collapse;
+    }
+
+    .planning-table th,
+    .planning-table td {
+      padding: 0.85rem;
+      text-align: left;
+      border-bottom: 1px solid #e2e8f0;
+      vertical-align: top;
+    }
+
+    .planning-table th {
+      background: #f7fafc;
+      color: #4a5568;
+      font-weight: 700;
+      text-transform: uppercase;
+      font-size: 0.75rem;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+    }
+
+    .planning-table tr:hover {
+      background: #f7fafc;
+    }
+
+    .status-badge {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 0.25rem 0.55rem;
+      font-size: 0.75rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .status-open {
+      background: #ebf8ff;
+      color: #2b6cb0;
+    }
+
+    .status-in-progress {
+      background: #fffaf0;
+      color: #c05621;
+    }
+
+    .status-testing {
+      background: #fefcbf;
+      color: #975a16;
+    }
+
+    .status-blocked {
+      background: #fed7d7;
+      color: #c53030;
+    }
+
+    .status-done {
+      background: #f0fff4;
+      color: #2f855a;
+    }
+
+    .bandwidth-good {
+      color: #2f855a;
+      font-weight: 700;
+    }
+
+    .bandwidth-tight {
+      color: #b7791f;
+      font-weight: 700;
+    }
+
+    .bandwidth-over {
+      color: #c53030;
+      font-weight: 700;
+    }
+
     .comparison-table {
       width: 100%;
       border-collapse: collapse;
@@ -863,6 +1256,7 @@ app.get('/', (c) => {
       <div class="mode-toggle">
         <button class="mode-btn active" id="singleMode">Single Associate</button>
         <button class="mode-btn" id="compareMode">Group Associates</button>
+        <button class="mode-btn" id="planningMode">Sprint Planning</button>
       </div>
       <form class="search-form" id="searchForm">
         <div id="singleEngineerForm">
@@ -1080,6 +1474,129 @@ app.get('/', (c) => {
       return (Math.round(numericDays * 10) / 10) + 'd';
     }
 
+    function escapeHtml(value) {
+      const div = document.createElement('div');
+      div.textContent = value == null ? '' : String(value);
+      return div.innerHTML;
+    }
+
+    function formatNumber(value) {
+      if (value === null || value === undefined || value === '') return '-';
+      const numberValue = Number(value);
+      if (!Number.isFinite(numberValue)) return '-';
+      return Number.isInteger(numberValue) ? String(numberValue) : String(Math.round(numberValue * 10) / 10);
+    }
+
+    function formatMaybeHours(value) {
+      if (value === null || value === undefined) return '-';
+      return formatNumber(value) + 'h';
+    }
+
+    function formatPercent(value) {
+      if (value === null || value === undefined) return '-';
+      return formatNumber(value) + '%';
+    }
+
+    function getBandwidthClass(value, capacity) {
+      if (!capacity) return '';
+      if (value < 0) return 'bandwidth-over';
+      if (value <= capacity * 0.1) return 'bandwidth-tight';
+      return 'bandwidth-good';
+    }
+
+    function getStatusClass(type) {
+      if (type === 'done') return 'status-done';
+      if (type === 'in-progress') return 'status-in-progress';
+      if (type === 'testing') return 'status-testing';
+      if (type === 'blocked') return 'status-blocked';
+      return 'status-open';
+    }
+
+    function displaySprintPlanning(data) {
+      const userInfo = document.getElementById('userInfo');
+      const metrics = document.querySelector('.metrics');
+      const ticketsSection = document.querySelector('.tickets-section');
+
+      userInfo.style.display = 'none';
+      metrics.style.display = 'none';
+      ticketsSection.style.display = 'none';
+      document.querySelectorAll('.comparison-view, .planning-view').forEach(el => el.remove());
+
+      const summary = data.summary || {};
+      const associates = data.associates || [];
+      const sprintName = data.sprintNames && data.sprintNames.length ? data.sprintNames.join(' + ') : 'Selected Sprint';
+      const historyNames = data.historySprintNames && data.historySprintNames.length ? data.historySprintNames.join(', ') : '';
+      const jiraBaseUrl = '${c.env.JIRA_BASE_URL}/browse/';
+      const teamBandwidthClass = getBandwidthClass(summary.totalBandwidthStoryPoints, summary.totalCapacityStoryPoints);
+
+      let html = '<div class="planning-view">';
+      html += '<h2>Sprint Planning: ' + escapeHtml(sprintName) + '</h2>';
+      html += '<p class="date-range">' + formatDateRange(data.dateRange) + '</p>';
+      html += '<div class="planning-note">Capacity is estimated from the last ' + (data.historySprintCount || 0) + ' closed sprint' + ((data.historySprintCount || 0) === 1 ? '' : 's') + (historyNames ? ': ' + escapeHtml(historyNames) : '') + '. Next sprint bandwidth is average completed story points minus story points currently in active development. Testing and review tickets are shown as closeout work, but they do not consume active development bandwidth.</div>';
+      html += '<div class="planning-summary">';
+      html += '<div class="planning-metric"><div class="value">' + formatNumber(summary.totalCapacityStoryPoints) + '</div><div class="label">Capacity SP</div></div>';
+      html += '<div class="planning-metric"><div class="value">' + formatNumber(summary.totalActiveDevelopmentStoryPoints) + '</div><div class="label">Active Dev SP</div></div>';
+      html += '<div class="planning-metric"><div class="value">' + formatNumber(summary.totalTestingStoryPoints) + '</div><div class="label">Testing SP</div></div>';
+      html += '<div class="planning-metric"><div class="value ' + teamBandwidthClass + '">' + formatNumber(summary.totalNextSprintAvailableStoryPoints) + '</div><div class="label">Next Sprint SP</div></div>';
+      html += '<div class="planning-metric"><div class="value">' + formatNumber(summary.totalOpenTickets) + '</div><div class="label">Not Done Tickets</div></div>';
+      html += '<div class="planning-metric"><div class="value">' + formatNumber(summary.totalUnestimatedOpenTickets) + '</div><div class="label">Unestimated</div></div>';
+      html += '</div>';
+
+      html += '<h3 class="planning-section-title">Associate Bandwidth</h3>';
+      html += '<div class="planning-table-wrapper"><table class="planning-table"><thead><tr><th>Associate</th><th>Not Done</th><th>In Progress</th><th>Testing</th><th>Blocked</th><th>Active Dev SP</th><th>Testing SP</th><th>Avg Capacity</th><th>Next Sprint SP</th><th>Active Utilization</th><th>Recommendation</th></tr></thead><tbody>';
+      associates.forEach(function(associate) {
+        const bandwidthClass = getBandwidthClass(associate.bandwidthStoryPoints, associate.capacityStoryPoints);
+        html += '<tr>';
+        html += '<td><strong>' + escapeHtml(associate.displayName || associate.email) + '</strong><div style="color:#718096;font-size:0.75rem;">' + escapeHtml(associate.email) + '</div></td>';
+        html += '<td>' + formatNumber(associate.openTickets) + '</td>';
+        html += '<td>' + formatNumber(associate.inProgressTickets) + '</td>';
+        html += '<td>' + formatNumber(associate.testingTickets) + '</td>';
+        html += '<td>' + formatNumber(associate.blockedTickets) + '</td>';
+        html += '<td>' + formatNumber(associate.activeDevelopmentStoryPoints) + '</td>';
+        html += '<td>' + formatNumber(associate.testingStoryPoints) + '</td>';
+        html += '<td>' + formatNumber(associate.capacityStoryPoints) + ' SP<div style="color:#718096;font-size:0.75rem;">' + formatNumber(associate.capacityHours) + 'h avg</div></td>';
+        html += '<td class="' + bandwidthClass + '">' + formatNumber(associate.nextSprintAvailableStoryPoints) + ' SP</td>';
+        html += '<td>' + formatPercent(associate.utilizationPercent) + '</td>';
+        html += '<td>' + escapeHtml(associate.recommendation || '-') + '</td>';
+        html += '</tr>';
+      });
+      html += '</tbody></table></div>';
+
+      html += '<h3 class="planning-section-title">Assigned Sprint Tickets</h3>';
+      associates.forEach(function(associate) {
+        const tickets = associate.tickets || [];
+        html += '<h3 class="planning-section-title">' + escapeHtml(associate.displayName || associate.email) + ' <span style="color:#718096;font-size:0.8rem;font-weight:500;">' + tickets.length + ' ticket' + (tickets.length === 1 ? '' : 's') + '</span></h3>';
+
+        if (tickets.length === 0) {
+          html += '<div class="planning-note">No assigned tickets found for this associate in the selected sprint.</div>';
+          return;
+        }
+
+        html += '<div class="planning-table-wrapper"><table class="planning-table"><thead><tr><th>Key</th><th>Status</th><th>Type</th><th>Story Points</th><th>Carryover</th><th>Why Not Done</th><th>Next Step</th><th>Bandwidth</th><th>Updated</th><th>Title</th></tr></thead><tbody>';
+        tickets.forEach(function(ticket) {
+          const statusClass = getStatusClass(ticket.type);
+          html += '<tr>';
+          html += '<td><a href="' + jiraBaseUrl + encodeURIComponent(ticket.key) + '" target="_blank" class="ticket-link">' + escapeHtml(ticket.key) + '</a></td>';
+          html += '<td><span class="status-badge ' + statusClass + '">' + escapeHtml(ticket.status) + '</span></td>';
+          html += '<td>' + escapeHtml(ticket.type) + '</td>';
+          html += '<td class="ticket-points">' + (ticket.storyPoints === null ? '-' : formatNumber(ticket.storyPoints)) + '</td>';
+          html += '<td>' + (ticket.carriedOver ? 'Yes' : '-') + '</td>';
+          html += '<td>' + escapeHtml(ticket.notClosedReason || '-') + '</td>';
+          html += '<td>' + escapeHtml(ticket.closeNextStep || '-') + '</td>';
+          html += '<td>' + escapeHtml(ticket.bandwidthImpact || '-') + '</td>';
+          html += '<td>' + formatDate(ticket.updated) + '</td>';
+          html += '<td class="ticket-summary" title="' + escapeHtml(ticket.summary) + '">' + escapeHtml(ticket.summary) + '</td>';
+          html += '</tr>';
+        });
+        html += '</tbody></table></div>';
+      });
+
+      html += '</div>';
+      results.insertAdjacentHTML('beforeend', html);
+      emptyState.classList.remove('show');
+      results.classList.add('show');
+    }
+
     function displayComparison(data) {
       const userInfo = document.getElementById('userInfo');
       const metrics = document.querySelector('.metrics');
@@ -1107,8 +1624,8 @@ app.get('/', (c) => {
         sprintLabel = data.sprintNames.join(' + ');
       }
 
-      // Remove old comparison views
-      document.querySelectorAll('.comparison-view').forEach(el => el.remove());
+      // Remove old dynamic views
+      document.querySelectorAll('.comparison-view, .planning-view').forEach(el => el.remove());
 
       // Render one table per sprint grouping in data
       const sprintGroups = data.sprintGroups || [{ sprintName: sprintLabel, dateRange: data.dateRange, rankings: data.rankings }];
@@ -1193,6 +1710,7 @@ app.get('/', (c) => {
     const searchButton = document.getElementById('searchButton');
     const singleModeBtn = document.getElementById('singleMode');
     const compareModeBtn = document.getElementById('compareMode');
+    const planningModeBtn = document.getElementById('planningMode');
     const singleEngineerForm = document.getElementById('singleEngineerForm');
     const compareEngineerForm = document.getElementById('compareEngineerForm');
     const engineerInputs = document.getElementById('engineerInputs');
@@ -1202,6 +1720,7 @@ app.get('/', (c) => {
     const totalStoryPointsEl = document.getElementById('totalStoryPoints');
     const avgHoursPerStoryPointEl = document.getElementById('avgHoursPerStoryPoint');
 
+    let currentMode = 'single';
     let isCompareMode = false;
     let currentFilter = 'worklog';
     let allTicketsData = [];
@@ -1270,7 +1789,7 @@ app.get('/', (c) => {
       parent.appendChild(dropdown);
 
       function getCompareExclusions() {
-        if (!isCompareMode) return new Set();
+        if (currentMode === 'single') return new Set();
         const used = new Set();
         document.querySelectorAll('.engineer-email').forEach(el => {
           if (el !== input && el.value.trim()) used.add(el.value.trim().toLowerCase());
@@ -1346,6 +1865,10 @@ app.get('/', (c) => {
 
     // Time range type toggle (days vs sprint)
     timeRangeTypeSelect.addEventListener('change', () => {
+      if (currentMode === 'planning' && timeRangeTypeSelect.value !== 'sprint') {
+        timeRangeTypeSelect.value = 'sprint';
+      }
+
       if (timeRangeTypeSelect.value === 'days') {
         daysFilter.style.display = 'flex';
         sprintFilter.style.display = 'none';
@@ -1354,7 +1877,7 @@ app.get('/', (c) => {
         daysFilter.style.display = 'none';
         sprintFilter.style.display = 'flex';
         // Only show add sprint button in compare mode
-        addSprintBtn.style.display = isCompareMode ? 'inline-block' : 'none';
+        addSprintBtn.style.display = currentMode === 'compare' ? 'inline-block' : 'none';
         fetchSprints();
       }
     });
@@ -1391,10 +1914,17 @@ app.get('/', (c) => {
       });
     }
 
+    function formatSprintState(state) {
+      if (state === 'closed') return '(Closed)';
+      if (state === 'future') return '(Future)';
+      if (state === 'active') return '(Active)';
+      return '(Open)';
+    }
+
     function renderSprintOptions() {
       sprintSelect.innerHTML = '<option value="">Select a sprint...</option>';
       allSprints.forEach(sprint => {
-        const status = sprint.state === 'closed' ? '(Closed)' : '(Open)';
+        const status = formatSprintState(sprint.state);
         const dates = formatDateRangeSprint(sprint.startDate, sprint.endDate);
         sprintSelect.innerHTML += '<option value="' + sprint.id + '">' + sprint.name + ' ' + status + ' - ' + dates + '</option>';
       });
@@ -1485,7 +2015,7 @@ app.get('/', (c) => {
       const alreadySelected = getAlreadySelectedSprintIds(sel);
       sel.innerHTML = '<option value="">Select a sprint...</option>';
       allSprints.forEach(sprint => {
-        const status = sprint.state === 'closed' ? '(Closed)' : '(Open)';
+        const status = formatSprintState(sprint.state);
         const dates = formatDateRangeSprint(sprint.startDate, sprint.endDate);
         const disabled = alreadySelected.has(String(sprint.id)) ? ' disabled' : '';
         sel.innerHTML += '<option value="' + sprint.id + '"' + disabled + '>' + sprint.name + ' ' + status + ' - ' + dates + '</option>';
@@ -1509,13 +2039,17 @@ app.get('/', (c) => {
 
     // Mode toggle
     singleModeBtn.addEventListener('click', () => {
+      currentMode = 'single';
       isCompareMode = false;
       singleModeBtn.classList.add('active');
       compareModeBtn.classList.remove('active');
+      planningModeBtn.classList.remove('active');
       singleEngineerForm.style.display = 'block';
       compareEngineerForm.style.display = 'none';
       pillFilter.style.display = 'flex';
       emailInput.required = true;
+      timeRangeTypeSelect.disabled = false;
+      searchButton.textContent = 'Search';
       addSprintBtn.style.display = 'none';
       // Remove extra sprint selectors
       extraSprintSelectors.innerHTML = '';
@@ -1529,7 +2063,7 @@ app.get('/', (c) => {
       const userInfo = document.getElementById('userInfo');
       const metrics = document.querySelector('.metrics');
       const ticketsSection = document.querySelector('.tickets-section');
-      document.querySelectorAll('.comparison-view').forEach(el => el.remove());
+      document.querySelectorAll('.comparison-view, .planning-view').forEach(el => el.remove());
 
       userInfo.style.display = 'block';
       metrics.style.display = 'grid';
@@ -1537,13 +2071,17 @@ app.get('/', (c) => {
     });
 
     compareModeBtn.addEventListener('click', () => {
+      currentMode = 'compare';
       isCompareMode = true;
       compareModeBtn.classList.add('active');
       singleModeBtn.classList.remove('active');
+      planningModeBtn.classList.remove('active');
       singleEngineerForm.style.display = 'none';
       compareEngineerForm.style.display = 'block';
       pillFilter.style.display = 'none';
       emailInput.required = false;
+      timeRangeTypeSelect.disabled = false;
+      searchButton.textContent = 'Search';
       // Show add sprint button only in compare+sprint mode
       if (timeRangeTypeSelect.value === 'sprint') {
         addSprintBtn.style.display = 'inline-block';
@@ -1552,6 +2090,30 @@ app.get('/', (c) => {
       // Add required to engineer inputs
       document.querySelectorAll('.engineer-email').forEach(input => {
         input.required = true;
+      });
+    });
+
+    planningModeBtn.addEventListener('click', () => {
+      currentMode = 'planning';
+      isCompareMode = false;
+      planningModeBtn.classList.add('active');
+      singleModeBtn.classList.remove('active');
+      compareModeBtn.classList.remove('active');
+      singleEngineerForm.style.display = 'none';
+      compareEngineerForm.style.display = 'block';
+      pillFilter.style.display = 'none';
+      emailInput.required = false;
+      timeRangeTypeSelect.value = 'sprint';
+      timeRangeTypeSelect.disabled = true;
+      daysFilter.style.display = 'none';
+      sprintFilter.style.display = 'flex';
+      addSprintBtn.style.display = 'none';
+      extraSprintSelectors.innerHTML = '';
+      searchButton.textContent = 'Plan Sprint';
+      fetchSprints();
+
+      document.querySelectorAll('.engineer-email').forEach(input => {
+        input.required = false;
       });
     });
 
@@ -1738,7 +2300,6 @@ app.get('/', (c) => {
       const customStart = customStartDate.value;
       const customEnd = customEndDate.value;
       const selectedSprintIds = getSelectedSprintIds();
-      const sprintId = selectedSprintIds[0] || '';
 
       if (timeRangeType === 'days') {
         if (timeRange === 'custom' && (!customStart || !customEnd)) {
@@ -1762,7 +2323,7 @@ app.get('/', (c) => {
         let url;
         let data;
 
-        if (isCompareMode) {
+        if (currentMode === 'compare') {
           const inputs = document.querySelectorAll('.engineer-email');
           const emails = Array.from(inputs).map((input) => input.value.trim()).filter(e => e);
 
@@ -1809,6 +2370,33 @@ app.get('/', (c) => {
 
           // Save emails to local storage
           emails.forEach(saveEmail);
+        } else if (currentMode === 'planning') {
+          const inputs = document.querySelectorAll('.engineer-email');
+          const emails = Array.from(inputs).map((input) => input.value.trim()).filter(e => e);
+
+          if (emails.length < 1) {
+            error.textContent = 'Please enter at least 1 associate email for sprint planning';
+            error.classList.add('show');
+            loading.classList.remove('show');
+            searchButton.disabled = false;
+            return;
+          }
+
+          url = '/sprint-planning?emails=' + emails.map(encodeURIComponent).join(',') + '&sprintIds=' + selectedSprintIds.join(',');
+
+          const response = await fetch(url);
+          data = await response.json();
+
+          if (!response.ok) {
+            throw new Error(data.error || 'Failed to fetch sprint planning');
+          }
+
+          displaySprintPlanning(data);
+
+          let urlParams = '?search=planning&email=' + emails.map(encodeURIComponent).join(',') + '&sprintIds=' + selectedSprintIds.join(',');
+          window.history.pushState({}, '', urlParams);
+
+          emails.forEach(saveEmail);
         } else {
           const email = emailInput.value.trim();
           if (!email) return;
@@ -1834,14 +2422,11 @@ app.get('/', (c) => {
           const userInfo = document.getElementById('userInfo');
           const metrics = document.querySelector('.metrics');
           const ticketsSection = document.querySelector('.tickets-section');
-          const existingComparison = document.querySelector('.comparison-view');
 
           userInfo.style.display = 'block';
           metrics.style.display = 'grid';
           ticketsSection.style.display = 'block';
-          if (existingComparison) {
-            existingComparison.remove();
-          }
+          document.querySelectorAll('.comparison-view, .planning-view').forEach(el => el.remove());
 
           userName.textContent = data.user.displayName;
           userEmail.textContent = email;
@@ -1975,6 +2560,21 @@ app.get('/', (c) => {
       const runSearch = () => {
         if (searchMode === 'single') {
           emailInput.value = emails[0];
+          searchForm.dispatchEvent(new Event('submit'));
+        } else if (searchMode === 'planning') {
+          planningModeBtn.click();
+
+          const inputs = document.querySelectorAll('.engineer-email');
+          emails.forEach((email, i) => {
+            if (i < inputs.length) {
+              inputs[i].value = email;
+            } else {
+              addEngineerBtn.click();
+              const newInputs = document.querySelectorAll('.engineer-email');
+              newInputs[newInputs.length - 1].value = email;
+            }
+          });
+
           searchForm.dispatchEvent(new Event('submit'));
         } else if (searchMode === 'group' || searchMode === 'total' || searchMode === 'compare') {
           // Switch to compare mode
@@ -2749,27 +3349,261 @@ app.get('/compare', async (c) => {
   }
 })
 
+app.get('/sprint-planning', async (c) => {
+  const emails = c.req.query('emails')?.split(',').map(e => e.trim()).filter(Boolean)
+  const sprintIdsRaw = c.req.query('sprintIds') || c.req.query('sprintId')
+  const sprintIds = sprintIdsRaw
+    ? sprintIdsRaw.split(',').map(s => s.trim()).filter((s: string) => /^\d+$/.test(s))
+    : []
+  const requestedHistorySprints = Number(c.req.query('historySprints') || 3)
+  const historySprintCount = Math.min(
+    Math.max(Number.isFinite(requestedHistorySprints) ? Math.trunc(requestedHistorySprints) : 3, 1),
+    6
+  )
+
+  if (!emails || emails.length === 0) {
+    return c.json({ error: 'At least 1 email required' }, 400)
+  }
+
+  if (sprintIds.length === 0) {
+    return c.json({ error: 'At least 1 sprint required' }, 400)
+  }
+
+  try {
+    const [allFields, sprintDetails]: [any[], any[]] = await Promise.all([
+      jiraFetch(c.env, '/rest/api/3/field') as Promise<any[]>,
+      Promise.all(sprintIds.map(id => jiraFetch(c.env, `/rest/agile/1.0/sprint/${id}`))) as Promise<any[]>
+    ])
+    const storyPointsFieldId = getStoryPointsFieldId(allFields)
+    const planningFields = `summary,${storyPointsFieldId},created,updated,status,assignee,comment,customfield_10020`
+    const sprintClause = sprintIds.length === 1
+      ? `sprint = ${sprintIds[0]}`
+      : `sprint in (${sprintIds.join(',')})`
+
+    let boardSprints: any[] = []
+    try {
+      boardSprints = await fetchBoardSprints(c.env, 'active,future,closed')
+    } catch (err: any) {
+      console.error(`Unable to fetch board sprints for planning history: ${err.message}`)
+    }
+
+    const historicalSprintDetails = pickHistoricalSprints(
+      boardSprints,
+      sprintDetails,
+      sprintIds,
+      historySprintCount
+    )
+
+    const associates: any[] = []
+
+    for (const email of emails) {
+      const user = await findUserByEmail(c.env, email)
+
+      if (!user?.accountId) {
+        associates.push({
+          email,
+          displayName: email,
+          userFound: false,
+          openTickets: 0,
+          inProgressTickets: 0,
+          testingTickets: 0,
+          blockedTickets: 0,
+          doneTickets: 0,
+          unestimatedOpenTickets: 0,
+          remainingStoryPoints: 0,
+          activeDevelopmentStoryPoints: 0,
+          testingStoryPoints: 0,
+          doneStoryPoints: 0,
+          committedStoryPoints: 0,
+          capacityStoryPoints: 0,
+          capacityHours: 0,
+          avgHoursPerStoryPoint: 0,
+          estimatedActiveDevelopmentHours: null,
+          estimatedRemainingHours: null,
+          bandwidthStoryPoints: 0,
+          nextSprintAvailableStoryPoints: 0,
+          utilizationPercent: null,
+          recommendation: 'User not found',
+          history: [],
+          tickets: []
+        })
+        continue
+      }
+
+      const assignedIssues = await jiraSearchIssues(
+        c.env,
+        `assignee = "${user.accountId}" AND ${sprintClause}`,
+        planningFields,
+        'changelog'
+      )
+
+      const tickets = assignedIssues
+        .map((issue: any) => getPlanningTicket(issue, storyPointsFieldId, sprintIds))
+        .sort((a: any, b: any) => {
+          const typeWeight: Record<string, number> = { 'in-progress': 0, blocked: 1, testing: 2, open: 3, done: 4 }
+          const aWeight = typeWeight[a.type] ?? 3
+          const bWeight = typeWeight[b.type] ?? 3
+          if (aWeight !== bWeight) return aWeight - bWeight
+
+          return new Date(b.updated || 0).getTime() - new Date(a.updated || 0).getTime()
+        })
+
+      const openTickets = tickets.filter((ticket: any) => ticket.type !== 'done')
+      const inProgressTickets = tickets.filter((ticket: any) => ticket.type === 'in-progress')
+      const testingTickets = tickets.filter((ticket: any) => ticket.type === 'testing')
+      const blockedTickets = tickets.filter((ticket: any) => ticket.type === 'blocked')
+      const doneTickets = tickets.filter((ticket: any) => ticket.type === 'done')
+      const remainingStoryPoints = sumTicketStoryPoints(openTickets)
+      const activeDevelopmentStoryPoints = sumTicketStoryPoints(inProgressTickets)
+      const testingStoryPoints = sumTicketStoryPoints(testingTickets)
+      const doneStoryPoints = sumTicketStoryPoints(doneTickets)
+      const committedStoryPoints = +(remainingStoryPoints + doneStoryPoints).toFixed(2)
+      const unestimatedOpenTickets = openTickets.filter((ticket: any) => ticket.storyPoints === null).length
+
+      const history: any[] = []
+      let historicalStoryPoints = 0
+      let historicalHours = 0
+
+      for (const sprint of historicalSprintDetails) {
+        const historicalIssues = await jiraSearchIssues(
+          c.env,
+          `assignee was "${user.accountId}" AND statusCategory = Done AND sprint = ${sprint.id}`,
+          `summary,${storyPointsFieldId},status`
+        )
+
+        const completedStoryPoints = +historicalIssues
+          .reduce((sum: number, issue: any) => sum + (getIssueStoryPoints(issue, storyPointsFieldId) || 0), 0)
+          .toFixed(2)
+
+        let loggedSeconds = 0
+        for (const issue of historicalIssues) {
+          const worklogs: any = await jiraFetch(c.env, `/rest/api/3/issue/${issue.key}/worklog`)
+          loggedSeconds += (worklogs.worklogs || [])
+            .filter((w: any) => w.author.accountId === user.accountId)
+            .reduce((sum: number, w: any) => sum + (w.timeSpentSeconds || 0), 0)
+        }
+
+        const loggedHours = +(loggedSeconds / 3600).toFixed(2)
+        historicalStoryPoints += completedStoryPoints
+        historicalHours += loggedHours
+
+        history.push({
+          sprintId: String(sprint.id),
+          sprintName: sprint.name || String(sprint.id),
+          completedTickets: historicalIssues.length,
+          completedStoryPoints,
+          loggedHours
+        })
+      }
+
+      const capacityStoryPoints = history.length > 0
+        ? +(historicalStoryPoints / history.length).toFixed(1)
+        : 0
+      const capacityHours = history.length > 0
+        ? +(historicalHours / history.length).toFixed(1)
+        : 0
+      const avgHoursPerStoryPoint = historicalStoryPoints > 0
+        ? +(historicalHours / historicalStoryPoints).toFixed(2)
+        : 0
+      const estimatedActiveDevelopmentHours = avgHoursPerStoryPoint > 0
+        ? +(activeDevelopmentStoryPoints * avgHoursPerStoryPoint).toFixed(1)
+        : null
+      const estimatedRemainingHours = avgHoursPerStoryPoint > 0
+        ? +(remainingStoryPoints * avgHoursPerStoryPoint).toFixed(1)
+        : null
+      const bandwidthStoryPoints = +(capacityStoryPoints - activeDevelopmentStoryPoints).toFixed(1)
+      const nextSprintAvailableStoryPoints = Math.max(0, bandwidthStoryPoints)
+      const utilizationPercent = capacityStoryPoints > 0
+        ? Math.round((activeDevelopmentStoryPoints / capacityStoryPoints) * 100)
+        : null
+
+      let recommendation = 'Need history'
+      if (capacityStoryPoints > 0 && bandwidthStoryPoints < 0) {
+        recommendation = `Over active dev capacity by ${Math.abs(bandwidthStoryPoints)} SP`
+      } else if (capacityStoryPoints > 0 && utilizationPercent !== null && utilizationPercent >= 90) {
+        recommendation = 'Near active dev capacity'
+      } else if (capacityStoryPoints > 0 && activeDevelopmentStoryPoints === 0) {
+        recommendation = `Can take about ${nextSprintAvailableStoryPoints} SP next sprint`
+      } else if (capacityStoryPoints > 0 && unestimatedOpenTickets > 0) {
+        recommendation = `Estimate ${unestimatedOpenTickets} open ticket${unestimatedOpenTickets === 1 ? '' : 's'}`
+      } else if (capacityStoryPoints > 0) {
+        recommendation = `${nextSprintAvailableStoryPoints} SP available after active dev load`
+      } else if (committedStoryPoints === 0) {
+        recommendation = 'No current load'
+      }
+
+      associates.push({
+        email,
+        displayName: user.displayName,
+        userFound: true,
+        openTickets: openTickets.length,
+        inProgressTickets: inProgressTickets.length,
+        testingTickets: testingTickets.length,
+        blockedTickets: blockedTickets.length,
+        doneTickets: doneTickets.length,
+        unestimatedOpenTickets,
+        remainingStoryPoints,
+        activeDevelopmentStoryPoints,
+        testingStoryPoints,
+        doneStoryPoints,
+        committedStoryPoints,
+        capacityStoryPoints,
+        capacityHours,
+        avgHoursPerStoryPoint,
+        estimatedActiveDevelopmentHours,
+        estimatedRemainingHours,
+        bandwidthStoryPoints,
+        nextSprintAvailableStoryPoints,
+        utilizationPercent,
+        recommendation,
+        history,
+        tickets
+      })
+    }
+
+    const summary = {
+      totalAssociates: associates.length,
+      foundAssociates: associates.filter((associate: any) => associate.userFound).length,
+      totalOpenTickets: associates.reduce((sum: number, associate: any) => sum + associate.openTickets, 0),
+      totalInProgressTickets: associates.reduce((sum: number, associate: any) => sum + associate.inProgressTickets, 0),
+      totalTestingTickets: associates.reduce((sum: number, associate: any) => sum + associate.testingTickets, 0),
+      totalBlockedTickets: associates.reduce((sum: number, associate: any) => sum + associate.blockedTickets, 0),
+      totalDoneTickets: associates.reduce((sum: number, associate: any) => sum + associate.doneTickets, 0),
+      totalUnestimatedOpenTickets: associates.reduce((sum: number, associate: any) => sum + associate.unestimatedOpenTickets, 0),
+      totalRemainingStoryPoints: +associates.reduce((sum: number, associate: any) => sum + associate.remainingStoryPoints, 0).toFixed(1),
+      totalActiveDevelopmentStoryPoints: +associates.reduce((sum: number, associate: any) => sum + associate.activeDevelopmentStoryPoints, 0).toFixed(1),
+      totalTestingStoryPoints: +associates.reduce((sum: number, associate: any) => sum + associate.testingStoryPoints, 0).toFixed(1),
+      totalDoneStoryPoints: +associates.reduce((sum: number, associate: any) => sum + associate.doneStoryPoints, 0).toFixed(1),
+      totalCommittedStoryPoints: +associates.reduce((sum: number, associate: any) => sum + associate.committedStoryPoints, 0).toFixed(1),
+      totalCapacityStoryPoints: +associates.reduce((sum: number, associate: any) => sum + associate.capacityStoryPoints, 0).toFixed(1),
+      totalCapacityHours: +associates.reduce((sum: number, associate: any) => sum + associate.capacityHours, 0).toFixed(1),
+      totalEstimatedActiveDevelopmentHours: +associates.reduce((sum: number, associate: any) => sum + (associate.estimatedActiveDevelopmentHours || 0), 0).toFixed(1),
+      totalEstimatedRemainingHours: +associates.reduce((sum: number, associate: any) => sum + (associate.estimatedRemainingHours || 0), 0).toFixed(1),
+      totalBandwidthStoryPoints: +associates.reduce((sum: number, associate: any) => sum + associate.bandwidthStoryPoints, 0).toFixed(1),
+      totalNextSprintAvailableStoryPoints: +associates.reduce((sum: number, associate: any) => sum + associate.nextSprintAvailableStoryPoints, 0).toFixed(1)
+    }
+
+    return c.json({
+      sprintIds,
+      sprintNames: sprintDetails.map((s: any) => s.name || String(s.id)),
+      dateRange: getDateRangeFromSprints(sprintDetails),
+      historySprintCount: historicalSprintDetails.length,
+      historySprintNames: historicalSprintDetails.map((s: any) => s.name || String(s.id)),
+      summary,
+      associates
+    })
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500)
+  }
+})
+
 app.get('/sprints', async (c) => {
   try {
-    const boardId = (c.env as any).JIRA_BOARD_ID;
-    if (!boardId) {
+    if (!c.env.JIRA_BOARD_ID) {
       return c.json({ error: 'JIRA_BOARD_ID not configured in environment' }, 500);
     }
 
-    const allSprints = []
-    let startAt = 0
-    let isLast = false
-
-    while (!isLast) {
-      const sprints: any = await jiraFetch(
-        c.env,
-        `/rest/agile/1.0/board/${boardId}/sprint?state=active,closed&startAt=${startAt}&maxResults=50`
-      )
-
-      allSprints.push(...(sprints.values || []))
-      isLast = sprints.isLast !== false
-      startAt += 50
-    }
+    const allSprints = await fetchBoardSprints(c.env, 'active,future,closed')
 
     return c.json({
       sprints: allSprints
@@ -2778,5 +3612,9 @@ app.get('/sprints', async (c) => {
     return c.json({ error: err.message }, 500)
   }
 })
+
+
+
+registerMcpRoutes(app)
 
 export default app
